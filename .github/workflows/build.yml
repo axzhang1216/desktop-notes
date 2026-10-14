@@ -1,0 +1,19 @@
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify data contracts
+        shell: pwsh
+        run: .\build.ps1 -Test -StoreOnly
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DesktopNotes-Windows
+          path: bin/DesktopNotes.exe

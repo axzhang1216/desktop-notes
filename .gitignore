@@ -1,0 +1,14 @@
+bin/
+dist/
+work/
+*.exe
+*.pdb
+*.zip
+*.tmp
+*.log
+notes.json*
+before-*.json
+.vs/
+.idea/
+Thumbs.db
+Desktop.ini
