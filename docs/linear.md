@@ -5,11 +5,13 @@
 ## 当前映射
 
 - Linear Project → 一个项目分区
-- Project summary / description → 项目摘要卡片
+- Project summary / description → 紧凑显示在项目标题下方
 - Linear Document → 便签卡片
-- 点击项目标题、摘要卡片或文档卡片 → 在浏览器打开对应 Linear 页面
+- 文档较长时可直接在卡片内展开全文或收起
+- 项目与文档右侧的 `↗` → 在浏览器打开对应 Linear 页面
 - 顶部 `L` 按钮 → 在本地便签与 Linear 视图之间切换
 - Linear 视图中的刷新按钮 → 重新从 Linear 拉取数据
+- 右键顶部 `L` → 管理或断开 Linear 连接
 
 本地便签的数据结构与备份格式保持不变，Linear 内容不会写入 `notes.json`。
 
