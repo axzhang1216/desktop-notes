@@ -1,23 +1,39 @@
 # 桌面便签 · Desktop Notes
 
-一个极简的 Windows 桌面便签工具。把项目、工作与日常放进自己定义的分区，随手记录标题与内容。
+一个极简的 Windows 桌面便签工具。保留原来的本地便签，同时可以连接 Linear，在同一个小窗口里查看项目与项目文档。
 
-A small, local Windows notes app with customizable sections, automatic timestamps, themes, and JSON backups. Built with C# and WPF. The interface is currently in Simplified Chinese.
+A small Windows notes app with customizable local sections plus a lightweight, read-only Linear projects and documents view. Built with C# and WPF. The interface is currently in Simplified Chinese.
 
 ![便签与分区管理示例](docs/preview.png)
 
 ## 下载与使用
 
-从 [Releases](https://github.com/Zoeyyy1106/desktop-notes/releases/latest) 下载 Windows 压缩包，解压后双击 `DesktopNotes.exe`。
+从 [Releases](https://github.com/axzhang1216/desktop-notes/releases/latest) 下载 Windows 压缩包，解压后双击 `DesktopNotes.exe`。
 
 运行环境：Windows 10 / 11，.NET Framework 4.8。程序以普通用户权限运行。
 
 - 点击分区右侧的 **＋**，输入标题与多行内容。暂停输入约半秒后自动保存。
 - 点击标题或编辑图标继续修改，长内容可展开、收起。
 - 创建时间会持续保留；修改内容时另记更新时间。悬停时间或进入编辑界面查看完整记录。
+- 顶部 **L** 按钮切换到 Linear 项目视图；再次点击返回本地便签。
 - 拖动顶部移动窗口，拖动边缘缩放，图钉按钮控制置顶。
 - 窗口位置、大小和置顶状态会在下次启动时恢复。再次运行程序会唤回已有窗口。
 - `Ctrl+S` 立即保存，`Esc` 返回上一层。
+
+## Linear 项目与文档
+
+首次进入 Linear 视图时输入 Linear Personal API Key。密钥用 Windows DPAPI（CurrentUser）加密后单独保存在本机，不会写入 `notes.json` 或便签备份。
+
+当前 Linear 集成为只读模式：
+
+- Linear Project 显示为项目分组，并显示项目摘要与状态。
+- Linear Document 显示为便签风格的卡片。
+- 长文档可以直接在窗口里展开与收起。
+- 卡片右上角的 `↗` 可以打开对应 Linear 页面。
+- Linear 视图中的刷新按钮会重新读取项目与文档。
+- 右键顶部 **L** 按钮可以管理或断开 Linear 连接。
+
+更多连接说明见 [`docs/linear.md`](docs/linear.md)。
 
 ## 自定义分区
 
@@ -99,7 +115,7 @@ A small, local Windows notes app with customizable sections, automatic timestamp
 - `Theme`：主题名、背景与文字颜色，以及兼容旧版本的预设色字段。
 - `Window`：位置、大小和置顶状态。
 
-加载与导入时校验分区 ID 唯一性、颜色格式、便签 ID、时间和分区引用。示例截图使用测试内容。
+加载与导入时校验分区 ID 唯一性、颜色格式、便签 ID、时间和分区引用。Linear 连接信息单独保存在 `linear.json`，不属于便签数据结构。
 
 ## 已知验证边界
 
