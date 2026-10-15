@@ -10,6 +10,7 @@ foreach ($reference in $references) { $compilerArgs += '/reference:' + (Join-Pat
 $compilerArgs += Join-Path $PSScriptRoot 'src\DesktopNotes.cs'
 $compilerArgs += Join-Path $PSScriptRoot 'src\LinearIntegration.cs'
 $compilerArgs += Join-Path $PSScriptRoot 'src\LinearProgramV2.cs'
+$compilerArgs += Join-Path $PSScriptRoot 'src\Version.cs'
 & (Join-Path $framework 'csc.exe') @compilerArgs
 if ($LASTEXITCODE -ne 0) { throw 'Application compilation failed.' }
 Write-Output (Join-Path $bin 'DesktopNotes.exe')
