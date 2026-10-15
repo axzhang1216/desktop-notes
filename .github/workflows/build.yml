@@ -51,7 +51,12 @@ jobs:
           $tag = 'v1.2.0'
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "$tag already exists; keeping the existing release."
+            gh release upload $tag `
+              .\dist\DesktopNotes-v1.2.0-Windows.zip `
+              .\dist\DesktopNotes-v1.2.0-SHA256.txt `
+              --repo $env:GITHUB_REPOSITORY `
+              --clobber
+            Write-Host "$tag assets refreshed."
             exit 0
           }
 
