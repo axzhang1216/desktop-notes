@@ -5,16 +5,73 @@ on:
   pull_request:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Build and verify data contracts
         shell: pwsh
         run: .\build.ps1 -Test -StoreOnly
+
+      - name: Package Windows build
+        shell: pwsh
+        run: |
+          $version = '1.2.0'
+          $dist = Join-Path $PWD 'dist'
+          $stage = Join-Path $dist 'package'
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item .\bin\DesktopNotes.exe (Join-Path $stage 'DesktopNotes.exe')
+          Copy-Item .\README.md (Join-Path $stage 'README.md')
+          Copy-Item .\LICENSE (Join-Path $stage 'LICENSE')
+          Copy-Item .\docs\linear.md (Join-Path $stage 'LINEAR.md')
+
+          $zip = Join-Path $dist "DesktopNotes-v$version-Windows.zip"
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -Force
+
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          "$hash  DesktopNotes-v$version-Windows.zip" | Set-Content -Encoding ascii (Join-Path $dist "DesktopNotes-v$version-SHA256.txt")
+
       - uses: actions/upload-artifact@v4
         with:
-          name: DesktopNotes-Windows
-          path: bin/DesktopNotes.exe
+          name: DesktopNotes-v1.2.0-Windows
+          path: |
+            dist/DesktopNotes-v1.2.0-Windows.zip
+            dist/DesktopNotes-v1.2.0-SHA256.txt
+          retention-days: 14
+
+      - name: Publish v1.2.0 release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'v1.2.0'
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "$tag already exists; keeping the existing release."
+            exit 0
+          }
+
+          $notes = @"
+          桌面便签 v1.2.0 加入 Linear 项目与文档视图。
+
+          - 顶部 L 按钮在本地便签和 Linear 之间切换。
+          - Linear Project 以紧凑项目分组显示，带项目摘要和状态。
+          - Linear Document 以便签卡片显示，长文可在窗口内展开/收起。
+          - 右上角 ↗ 可打开对应 Linear 页面。
+          - Linear Personal API Key 使用 Windows DPAPI（CurrentUser）加密保存在本机。
+          - Linear 集成当前为只读，不改变原有 notes.json 数据结构与备份格式。
+
+          下载 DesktopNotes-v1.2.0-Windows.zip，解压后运行 DesktopNotes.exe。
+          "@
+
+          gh release create $tag `
+            .\dist\DesktopNotes-v1.2.0-Windows.zip `
+            .\dist\DesktopNotes-v1.2.0-SHA256.txt `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title 'v1.2.0 · Linear 项目与文档' `
+            --notes $notes
