@@ -90,7 +90,7 @@ namespace DesktopNotes {
         const string Query=@"query DesktopNotesLinear {
   viewer { id name }
   projects(first: 50, orderBy: updatedAt) {
-    nodes { id name summary description url updatedAt status { name type } }
+    nodes { id name content description url updatedAt status { name type } }
   }
   documents(first: 100, orderBy: updatedAt) {
     nodes { id title content url updatedAt project { id name } }
@@ -102,6 +102,7 @@ namespace DesktopNotes {
 
         public async Task<LinearSnapshot> LoadAsync() {
             if(string.IsNullOrWhiteSpace(apiKey)) throw new InvalidOperationException("尚未连接 Linear。");
+            EnableModernTls();
             using(var client=new HttpClient()) {
                 client.Timeout=TimeSpan.FromSeconds(20);
                 using(var request=new HttpRequestMessage(HttpMethod.Post,Endpoint)) {
@@ -110,11 +111,22 @@ namespace DesktopNotes {
                     request.Content=new StringContent(payload,Encoding.UTF8,"application/json");
                     using(var response=await client.SendAsync(request)) {
                         string json=await response.Content.ReadAsStringAsync();
-                        if(!response.IsSuccessStatusCode) throw new InvalidOperationException("Linear 返回 "+(int)response.StatusCode+"。请检查 API Key 和网络连接。");
+                        if(!response.IsSuccessStatusCode) {
+                            string detail=GraphQlMessage(json);
+                            throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
+                                ?"Linear 返回 "+(int)response.StatusCode+"。请检查 API Key 和网络连接。"
+                                :detail);
+                        }
                         return Parse(json);
                     }
                 }
             }
+        }
+
+        static void EnableModernTls() {
+            const System.Net.SecurityProtocolType tls12=(System.Net.SecurityProtocolType)3072;
+            const System.Net.SecurityProtocolType tls13=(System.Net.SecurityProtocolType)12288;
+            System.Net.ServicePointManager.SecurityProtocol |= tls12 | tls13;
         }
 
         LinearSnapshot Parse(string json) {
@@ -138,7 +150,7 @@ namespace DesktopNotes {
             foreach(var item in projects) {
                 var status=Dict(item,"status");
                 snapshot.Projects.Add(new LinearProjectItem {
-                    Id=String(item,"id"), Name=String(item,"name"), Summary=String(item,"summary"), Description=String(item,"description"),
+                    Id=String(item,"id"), Name=String(item,"name"), Summary=String(item,"content"), Description=String(item,"description"),
                     Url=String(item,"url"), UpdatedAt=String(item,"updatedAt"), Status=status==null?"":String(status,"name")
                 });
             }
@@ -156,6 +168,14 @@ namespace DesktopNotes {
             return snapshot;
         }
 
+        static string GraphQlMessage(string json) {
+            try {
+                var root=new JavaScriptSerializer { MaxJsonLength=16*1024*1024, RecursionLimit=80 }.DeserializeObject(json) as Dictionary<string,object>;
+                object errorObject; if(root==null || !root.TryGetValue("errors",out errorObject)) return null;
+                object[] errors=errorObject as object[]; if(errors==null || errors.Length==0) return null;
+                var first=errors[0] as Dictionary<string,object>; return first==null?null:String(first,"message");
+            } catch { return null; }
+        }
         static Dictionary<string,object> Dict(Dictionary<string,object> source,string key) {
             object value; if(source==null || !source.TryGetValue(key,out value)) return null; return value as Dictionary<string,object>;
         }
@@ -337,7 +357,7 @@ namespace DesktopNotes {
                 if(string.IsNullOrWhiteSpace(key.Password)) { message.Text="请输入 API Key。"; return; }
                 connect.IsEnabled=false; cancel.IsEnabled=false; message.Text="正在验证…";
                 try { var snapshot=await new LinearApiClient(key.Password).LoadAsync(); connectionStore.Save(key.Password,snapshot.ViewerName); lastSnapshot=snapshot; CloseSetup(); linearMode=true; RenderLinear(snapshot); }
-                catch(Exception ex) { message.Text=ex.Message; connect.IsEnabled=true; cancel.IsEnabled=true; }
+                catch(Exception ex) { message.Text=ex.InnerException==null || string.IsNullOrWhiteSpace(ex.InnerException.Message)?ex.Message:ex.InnerException.Message; connect.IsEnabled=true; cancel.IsEnabled=true; }
             };
             key.KeyDown+=(s,e)=> { if(e.Key==Key.Escape) { CloseSetup(); e.Handled=true; } };
             key.Focus();

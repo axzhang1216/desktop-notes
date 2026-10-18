@@ -5,7 +5,7 @@
 ## 当前映射
 
 - Linear Project → 一个项目分区
-- Project summary / description → 紧凑显示在项目标题下方
+- Project content / description → 紧凑显示在项目标题下方
 - Linear Document → 便签卡片
 - 文档较长时可直接在卡片内展开全文或收起
 - 项目与文档右侧的 `↗` → 在浏览器打开对应 Linear 页面
@@ -31,4 +31,4 @@ API Key 使用 Windows DPAPI（CurrentUser）加密后保存在与 `notes.json` 
 https://api.linear.app/graphql
 ```
 
-一次请求读取当前用户、最近更新的项目和文档，并在本地窗口中渲染。当前上限为 50 个项目、100 个文档。
+一次请求读取当前用户、最近更新的项目和文档，并在本地窗口中渲染。当前上限为 50 个项目、100 个文档。项目简介读取 `content` 与 `description`；Linear 已不再提供 `Project.summary`。
