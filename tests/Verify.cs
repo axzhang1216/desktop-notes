@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -8,6 +9,7 @@ using System.Web.Script.Serialization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -33,8 +35,86 @@ public static class Verify {
         var sb=new StringBuilder(); WalkText(node,sb); return sb.ToString();
     }
     static void WalkText(DependencyObject node,StringBuilder sb) {
-        var text=node as TextBlock; if(text!=null) sb.AppendLine(text.Text);
+        var text=node as TextBlock;
+        if(text!=null) { sb.AppendLine(text.Text); foreach(var inline in text.Inlines) { var run=inline as Run; if(run!=null) sb.AppendLine(run.Text); } }
         foreach(object child in LogicalTreeHelper.GetChildren(node)) { var next=child as DependencyObject; if(next!=null) WalkText(next,sb); }
+    }
+    static string SampleBrief(string date,string headline,string project,string leftoverProject,string leftover,string generatedAt=null) {
+        return "{\"date\":\""+date+"\",\"generated_at\":\""+(generatedAt??date+"T01:33:25Z")+"\",\"headline\":\""+headline+"\","
+            +"\"projects\":[{\"project\":\""+project+"\",\"need\":\"把总结和潜在问题放进便签。\",\"progress\":\"已经接上 Apocalypse 的每日总结。\",\"status\":\"partial\"}],"
+            +"\"leftovers\":[{\"project\":\""+leftoverProject+"\",\"item\":\""+leftover+"\",\"why\":\"结论里没有写。\"}],"
+            +"\"notes\":\"证据偏薄。\",\"evidence\":{\"episodes\":4,\"live\":4,\"batch\":0}}";
+    }
+    static void BriefTests() {
+        string directory=Path.Combine(folder,"briefs"); Directory.CreateDirectory(directory);
+        string today=DateTime.Now.ToString("yyyy-MM-dd"),yesterday=DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd");
+        File.WriteAllText(Path.Combine(directory,today+".today.json"),SampleBrief(today,"今日标题","今日项目","今日遗留项目","今日遗留问题"),new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(directory,yesterday+".json"),SampleBrief(yesterday,"昨日标题","昨日项目","昨日遗留项目","昨日遗留问题"),new UTF8Encoding(false));
+        var store=new ApocalypseBriefStore(directory); store.Load();
+        Check(store.Today!=null && store.Yesterday!=null && store.Days().Count==2,"today and yesterday briefs load from the Apocalypse folder");
+        Check(store.Today.Headline=="今日标题" && store.Today.Projects.Count==1 && store.Today.Projects[0].Project=="今日项目" && store.Today.Projects[0].Status=="partial" && store.Today.Episodes==4 && store.Today.Generated!=null,"brief projects evidence and generation time parse");
+        var board=new StackPanel(); var status=new TextBlock(); var count=new TextBlock();
+        ApocalypseBriefView.RenderSummary(board,status,count,store);
+        string text=VisualText(board);
+        Check(text.Contains("今日标题") && text.Contains("今日项目") && text.Contains("昨日标题") && text.Contains("昨日项目") && text.Contains("部分完成"),"summary lists today and yesterday projects with status");
+        Check(text.Contains("需求") && text.Contains("进展") && !text.Contains("今日遗留问题"),"summary shows need and progress without leftovers");
+        Check(count.Text=="2 个项目","summary counts projects");
+        board=new StackPanel(); ApocalypseBriefView.RenderIssues(board,status,count,store); text=VisualText(board);
+        Check(text.Contains("今日遗留问题") && text.Contains("昨日遗留问题") && !text.Contains("今日项目"),"issues page lists only leftovers");
+        Check(count.Text=="2 条待解决","issues page counts leftovers");
+        var missing=new ApocalypseBriefStore(Path.Combine(folder,"briefs-empty")); missing.Load();
+        board=new StackPanel(); ApocalypseBriefView.RenderSummary(board,status,count,missing);
+        Check(missing.Days().Count==0 && VisualText(board).Contains("还没有 Apocalypse") && count.Text=="0 个项目","missing briefs show an empty state");
+    }
+    // 替身脚本：不带参数写昨天，带 --today 写今天，内容取自 template.json。
+    const string StubScript=@"import datetime, pathlib, sys
+here = pathlib.Path(__file__).resolve().parent
+day = datetime.date.today()
+if '--today' in sys.argv:
+    name = day.isoformat() + '.today.json'
+else:
+    day = day - datetime.timedelta(days=1)
+    name = day.isoformat() + '.json'
+out = here / 'briefs'
+out.mkdir(exist_ok=True)
+now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEHOLDER', day.isoformat()).replace('GENERATED_AT', now)
+(out / name).write_text(body, encoding='utf-8')
+";
+    static string JsonText(string value) { return "\""+value.Replace("\\","\\\\").Replace("\"","\\\"")+"\""; }
+    static string StubPython() {
+        foreach(string candidate in new[]{"python","py -3"}) {
+            try {
+                var info=new ProcessStartInfo { FileName=candidate.Split(' ')[0], Arguments=(candidate.Contains(" ")?candidate.Substring(candidate.IndexOf(' ')+1)+" ":"")+"-c \"import zoneinfo;zoneinfo.ZoneInfo('Asia/Shanghai')\"", UseShellExecute=false, CreateNoWindow=true, RedirectStandardOutput=true, RedirectStandardError=true };
+                using(var process=Process.Start(info)) { process.StandardOutput.ReadToEnd(); process.StandardError.ReadToEnd(); if(process.WaitForExit(10000) && process.ExitCode==0) return candidate; }
+            } catch(Exception) { }
+        }
+        return null;
+    }
+    static string InstallStub(string root) {
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root,"template.json"),SampleBrief("DATE_PLACEHOLDER","重新生成标题","今日项目","今日遗留项目","今日遗留问题","GENERATED_AT"),new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(root,"daily_work_brief.py"),StubScript,new UTF8Encoding(false));
+        string python=StubPython(); if(python==null) return null;
+        string config=Path.Combine(root,"apocalypse.json");
+        File.WriteAllText(config,"{\"script\":"+JsonText(Path.Combine(root,"daily_work_brief.py"))+",\"python\":"+JsonText(python)+"}",new UTF8Encoding(false));
+        return config;
+    }
+    static void RunnerTests() {
+        string root=Path.Combine(folder,"runner"),config=InstallStub(root);
+        if(config==null) { checks.Add("SKIP brief runner needs a python with tzdata"); return; }
+        string directory=Path.Combine(root,"briefs");
+        var runner=new ApocalypseBriefRunner(config);
+        Check(runner.Script==Path.Combine(root,"daily_work_brief.py"),"brief runner takes the script from its config");
+        var store=new ApocalypseBriefStore(directory); store.Load();
+        Check(ApocalypseBriefRunner.NeedsYesterday(null) && ApocalypseBriefRunner.NeedsToday(null,DateTime.Now),"missing briefs need generation");
+        runner.Generate(true,true); store.Load();
+        Check(store.Today!=null && store.Yesterday!=null && store.Today.Headline=="重新生成标题" && store.Yesterday.Headline=="重新生成标题","brief runner regenerates yesterday and today through Apocalypse");
+        Check(!ApocalypseBriefRunner.NeedsYesterday(store.Yesterday) && !ApocalypseBriefRunner.NeedsToday(store.Today,DateTime.Now),"a fresh brief is not regenerated again");
+        Check(ApocalypseBriefRunner.NeedsToday(store.Today,DateTime.Now.AddHours(2)),"a brief older than an hour is regenerated");
+        File.WriteAllText(Path.Combine(root,"daily_work_brief.py"),"import sys"+Environment.NewLine+"print('Apocalypse analysis model is not configured', file=sys.stderr)"+Environment.NewLine+"raise SystemExit(1)"+Environment.NewLine,new UTF8Encoding(false));
+        string message=null; try { runner.Generate(false,true); } catch(Exception e) { message=e.Message; }
+        Check(message!=null && message.Contains("not configured"),"brief runner reports what Apocalypse said when it fails");
     }
     static void LinearBoardTests() {
         string json="{\"data\":{\"viewer\":{\"id\":\"u\",\"name\":\"Zoey\"},\"projects\":{\"nodes\":[{\"id\":\"p1\",\"name\":\"桌面便签\",\"url\":\"https://linear.app/p1\",\"updatedAt\":\"2026-10-18T00:00:00.000Z\",\"color\":\"#5e6ad2\",\"status\":{\"name\":\"In Progress\",\"type\":\"started\"},\"content\":\"第一性原理\"},{\"id\":\"p2\",\"name\":\"空项目\",\"description\":\"不应出现的描述\",\"status\":{\"name\":\"Planned\",\"type\":\"planned\"}}]},\"issues\":{\"nodes\":[{\"id\":\"i1\",\"identifier\":\"AOX-2\",\"title\":\"继续做\",\"url\":\"https://linear.app/i1\",\"updatedAt\":\"2026-10-18T01:00:00.000Z\",\"priority\":2,\"state\":{\"name\":\"Todo\",\"type\":\"unstarted\"},\"project\":{\"id\":\"p1\",\"name\":\"桌面便签\"}},{\"id\":\"i2\",\"identifier\":\"AOX-9\",\"title\":\"游离事项\",\"url\":\"https://linear.app/i2\",\"updatedAt\":\"2026-10-17T01:00:00.000Z\",\"priority\":0,\"state\":{\"name\":\"Backlog\",\"type\":\"backlog\"},\"project\":null},{\"id\":\"i3\",\"identifier\":\"AOX-1\",\"title\":\"做完了\",\"state\":{\"name\":\"Done\",\"type\":\"completed\"},\"project\":{\"id\":\"p2\",\"name\":\"空项目\"}}]}}}";
@@ -113,6 +193,33 @@ public static class Verify {
         Check(((TextBlock)Find(w,"AppTitle")).Text=="待办","Linear view title is 待办");
         Check(Find(w,"LinearRefresh").Visibility==Visibility.Visible,"refresh appears in Linear view");
         Capture(w,"linear-todo");
+        string briefDirectory=Path.Combine(folder,"ui-runner","briefs"); Directory.CreateDirectory(briefDirectory);
+        string briefDate=DateTime.Now.ToString("yyyy-MM-dd"),previousDate=DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd");
+        File.WriteAllText(Path.Combine(briefDirectory,briefDate+".today.json"),SampleBrief(briefDate,"今日标题","今日项目","今日遗留项目","今日遗留问题",DateTime.UtcNow.AddMinutes(-5).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")),new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(briefDirectory,previousDate+".json"),SampleBrief(previousDate,"昨日标题","昨日项目","昨日遗留项目","昨日遗留问题"),new UTF8Encoding(false));
+        string uiConfig=InstallStub(Path.Combine(folder,"ui-runner"));
+        if(uiConfig==null) checks.Add("SKIP brief page generation needs a python with tzdata");
+        ApocalypseIntegration.Attach(w,new ApocalypseBriefStore(briefDirectory),uiConfig==null?null:new ApocalypseBriefRunner(uiConfig)); Pump();
+        Check(Find(w,"SummarySource")!=null && Find(w,"IssuesSource")!=null && Find(w,"BriefRefresh")!=null,"brief pages appear in the toolbar");
+        Click(w,"SummarySource"); Pump(450);
+        Check((bool)linearType.GetField("linearMode",flags).GetValue(integration)==false && Find(w,"LinearRefresh").Visibility==Visibility.Collapsed,"opening a brief page leaves the Linear view");
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="总结" && Find(w,"BriefSummaryRoot")!=null && Find(w,"BriefRefresh").Visibility==Visibility.Visible,"summary page shows the daily brief");
+        Check(VisualText(Find(w,"BriefSummaryRoot")).Contains("今日项目") && VisualText(Find(w,"BriefSummaryRoot")).Contains("今日标题"),"summary page lists the project and headline");
+        Capture(w,"brief-summary");
+        Click(w,"IssuesSource"); Pump(450);
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="潜在问题" && Find(w,"BriefIssuesRoot")!=null && VisualText(Find(w,"BriefIssuesRoot")).Contains("今日遗留问题"),"issues page shows leftovers");
+        Capture(w,"brief-issues");
+        Click(w,"NotesSource"); Pump(450);
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="便签" && Find(w,"BriefRefresh").Visibility==Visibility.Collapsed && Find(w,"Add-product")!=null,"notes button returns from the brief pages");
+        File.WriteAllText(Path.Combine(briefDirectory,briefDate+".today.json"),SampleBrief(briefDate,"今日标题","今日项目","今日遗留项目","今日遗留问题",previousDate+"T01:33:25Z"),new UTF8Encoding(false));
+        Click(w,"SummarySource"); Pump(450);
+        if(uiConfig!=null) {
+            FrameworkElement summary=Find(w,"BriefSummaryRoot");
+            for(int i=0;i<40 && (summary==null || !VisualText(summary).Contains("重新生成标题"));i++) { Pump(150); summary=Find(w,"BriefSummaryRoot"); }
+            Check(summary!=null && VisualText(summary).Contains("重新生成标题"),"a stale brief is regenerated through Apocalypse");
+            Capture(w,"brief-regenerated");
+        }
+        Click(w,"NotesSource"); Pump(450);
         linearType.GetField("linearMode",flags).SetValue(integration,false); linearType.GetMethod("SetModeButtons",flags).Invoke(integration,null); w.RenderBoard();
         foreach(string section in new[]{"product","custom","personal"}) Check(Find(w,"Add-"+section)!=null,"add control for "+section);
         Click(w,"Add-product"); Input(w,"TitleInput","示例 · 标品项目"); Input(w,"ContentInput","现状：核心流程已完成。\n下一步：核对范围与验收清单。\n待确认：发布安排。"); Pump(750);
@@ -174,7 +281,7 @@ public static class Verify {
     }
     [STAThread] public static int Main(string[] args) {
         folder=Path.GetFullPath(args[0]); Directory.CreateDirectory(folder); var app=new Application { ShutdownMode=ShutdownMode.OnExplicitShutdown };
-        try { LinearBoardTests(); StoreTests(); SectionTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
+        try { LinearBoardTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
         catch(Exception e) { checks.Add("FAIL "+e); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 1; }
     }
 }

@@ -1,8 +1,8 @@
 # 桌面便签 · Desktop Notes
 
-一个极简的 Windows 桌面便签工具。保留原来的本地便签，同时可以连接 Linear，在同一个小窗口里查看未完成的待办。
+一个极简的 Windows 桌面便签工具。保留原来的本地便签，同时可以连接 Linear 查看未完成的待办，并读取 Apocalypse 的每日总结与潜在问题——必要时便签自己让 Apocalypse 重新生成。
 
-A small Windows notes app with customizable local sections plus a lightweight, read-only Linear todo view. Built with C# and WPF. The interface is currently in Simplified Chinese.
+A small Windows notes app with customizable local sections, a lightweight read-only Linear todo view, and the daily work brief from Apocalypse — which the app can ask Apocalypse to regenerate. Built with C# and WPF. The interface is currently in Simplified Chinese.
 
 ![便签与分区管理示例](docs/preview.png)
 
@@ -15,7 +15,7 @@ A small Windows notes app with customizable local sections plus a lightweight, r
 - 点击分区右侧的 **＋**，输入标题与多行内容。暂停输入约半秒后自动保存。
 - 点击标题或编辑图标继续修改，长内容可展开、收起。
 - 创建时间会持续保留；修改内容时另记更新时间。悬停时间或进入编辑界面查看完整记录。
-- 顶部便签与 Linear 图标在本地便签和待办之间切换。切换时内容区做一次卡片翻转。进入待办时，左上角标题改为「待办」。
+- 顶部四个图标在本地便签、Linear 待办、每日总结和潜在问题之间切换。切换时内容区做一次卡片翻转，左上角标题跟随当前页面。
 - 拖动顶部移动窗口，拖动边缘缩放，图钉按钮控制置顶。
 - 窗口位置、大小和置顶状态会在下次启动时恢复。再次运行程序会唤回已有窗口。
 - 点击 **×** 或按 `Alt+F4` 关闭时，便签最小化到任务栏而不是退出；在任务栏右键图标选择「退出」，或在最小化状态再次选择「关闭」，即可真正关闭程序。
@@ -35,6 +35,33 @@ A small Windows notes app with customizable local sections plus a lightweight, r
 - 右键 Linear 图标可以管理或断开 Linear 连接。
 
 更多连接说明见 [`docs/linear.md`](docs/linear.md)。
+
+## 每日总结与潜在问题
+
+本机的 Apocalypse 会把每天与 AI 的工作整理成一份总结。便签直接读取这份结果，多出两个页面：
+
+- **总结**：按今日、昨日分别列出每个项目的需求与进展，并给出当天的整体概括。
+- **潜在问题**：列出这两份总结里还没做完的事，以及 agent 自己报告的问题。
+
+数据来自 `%USERPROFILE%\.claude\apocalypse\briefs\`：今日读 `<今天>.today.json`，昨日读 `<昨天>.json`。这两个文件由 Apocalypse 生成，便签只读不改。
+
+打开页面或点刷新时，只要今日总结超过一小时没更新、或者根本没有总结，便签就直接调用 Apocalypse 的生成脚本重算一份——Apocalypse 后台没启动也能用。页面先显示手上已有的内容，算完自动更新，一次大约一分钟。
+
+- 每份总结右侧显示它的生成时间。
+- 刷新按钮重新读取文件，必要时重新生成；右键刷新按钮可以强制重新生成。
+- 找不到生成脚本、或 Apocalypse 还没生成过时，页面会提示暂无记录。
+- 读取不到文件不会影响便签与待办，只是这两个页面为空。
+
+便签会记住生成脚本的位置，存在 `%LOCALAPPDATA%\ZoeyDesktopNotes\apocalypse.json`：
+
+```json
+{
+  "script": "E:\\...\\apocalypse\\skills_apocalypse\\pipeline\\daily_work_brief.py",
+  "python": "python"
+}
+```
+
+第一次使用时会自动在 Claude Code 记下的仓库位置里找这个脚本，并挑一个带时区数据的 Python 解释器，找到后就写进这个文件。位置不对时可以直接改；解释器路径带空格时用引号包起来，例如 `"python": "\"C:\\Program Files\\Python311\\python.exe\""`。
 
 ## 自定义分区
 
