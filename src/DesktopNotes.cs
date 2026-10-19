@@ -182,6 +182,7 @@ namespace DesktopNotes {
         readonly DispatcherTimer editTimer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(550) };
         readonly DispatcherTimer positionTimer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(650) };
         Button pin;
+        TextBlock headingTitle;
         Note editing;
         string editingSection;
         TextBox titleInput,contentInput;
@@ -211,7 +212,7 @@ namespace DesktopNotes {
             var main=new Grid(); main.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); main.RowDefinitions.Add(new RowDefinition()); main.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); root.Children.Add(main);
             var header=new Grid { Margin=new Thickness(22,17,14,18), Background=Brushes.Transparent }; header.ColumnDefinitions.Add(new ColumnDefinition()); header.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
             header.MouseLeftButtonDown+=(s,e)=> { if(e.ClickCount==2) return; if(e.OriginalSource is TextBlock || e.OriginalSource==header) { try { DragMove(); } catch(InvalidOperationException){} } };
-            var heading=new StackPanel { Margin=new Thickness(0,0,8,0) }; heading.Children.Add(Text("便签",24,"TextBrush",true)); heading.Children.Add(Text(DateTime.Now.ToString("yyyy年M月d日",CultureInfo.GetCultureInfo("zh-CN")),11,"MutedBrush",false,new Thickness(1,7,0,0))); header.Children.Add(heading);
+            var heading=new StackPanel { Margin=new Thickness(0,0,8,0) }; headingTitle=Text("便签",24,"TextBrush",true); AutomationProperties.SetAutomationId(headingTitle,"AppTitle"); heading.Children.Add(headingTitle); heading.Children.Add(Text(DateTime.Now.ToString("yyyy年M月d日",CultureInfo.GetCultureInfo("zh-CN")),11,"MutedBrush",false,new Thickness(1,7,0,0))); header.Children.Add(heading);
             var tools=new StackPanel { Orientation=Orientation.Horizontal, VerticalAlignment=VerticalAlignment.Top, Margin=new Thickness(0,1,0,0) }; Grid.SetColumn(tools,1); header.Children.Add(tools);
             pin=IconButton("\uE718","置顶窗口","Pin",()=> { Topmost=!Topmost; store.Data.Window.Topmost=Topmost; UpdatePin(); SyncNativePin(); Persist(); }); tools.Children.Add(pin);
             tools.Children.Add(IconButton("\uE713","设置","Settings",OpenSettings));
@@ -264,8 +265,10 @@ namespace DesktopNotes {
         }
         void SchedulePosition() { if(!loaded || WindowState!=WindowState.Normal) return; positionTimer.Stop(); positionTimer.Start(); }
         void SavePlacement() { if(WindowState!=WindowState.Normal) return; store.Data.Window=new Placement { Left=Left,Top=Top,Width=Width,Height=Height,Topmost=Topmost }; }
+        public bool PreserveStatusOnSave { get; set; }
+        public void SetHeading(string text) { if(headingTitle!=null && text!=null) headingTitle.Text=text; }
         public bool Persist() {
-            try { store.Save(); savingError=false; status.Text="已保存到此电脑"; if(editorStatus!=null) editorStatus.Text="已自动保存 · "+DateTime.Now.ToString("HH:mm"); return true; }
+            try { store.Save(); savingError=false; if(!PreserveStatusOnSave) status.Text="已保存到此电脑"; if(editorStatus!=null) editorStatus.Text="已自动保存 · "+DateTime.Now.ToString("HH:mm"); return true; }
             catch(Exception e) { status.Text="保存遇到问题，请导出备份"; if(editorStatus!=null) editorStatus.Text="保存遇到问题"; if(!savingError) MessageBox.Show(this,"便签仍保留在当前窗口。请通过「配色与备份」导出，再检查本地保存位置。\n\n"+e.Message,"保存遇到问题",MessageBoxButton.OK,MessageBoxImage.Error); savingError=true; return false; }
         }
         public void RenderBoard() {
