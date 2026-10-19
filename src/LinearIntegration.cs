@@ -377,8 +377,14 @@ namespace DesktopNotes {
             RenderOptions.SetEdgeMode(path,EdgeMode.Unspecified);
             return path;
         }
+        static System.Windows.Shapes.Path FillIcon(string geometry) {
+            var path=new System.Windows.Shapes.Path { Data=Geometry.Parse(geometry), Stretch=Stretch.Uniform, Width=16, Height=16, SnapsToDevicePixels=true, IsHitTestVisible=false };
+            path.SetResourceReference(System.Windows.Shapes.Shape.FillProperty,"TextBrush");
+            RenderOptions.SetEdgeMode(path,EdgeMode.Unspecified);
+            return path;
+        }
         static System.Windows.Shapes.Path NoteIcon() { return StrokeIcon("M3.1,2.2 H9.3 L12.9,5.8 V13.8 H3.1 Z M9.3,2.4 V5.8 H12.7 M5.2,8.1 H10.5 M5.2,10.6 H8.7"); }
-        static System.Windows.Shapes.Path LinearIcon() { return StrokeIcon("M4.2,2.5 H10.8 A1.8,1.8 0 0 1 12.6,4.3 V11.7 A1.8,1.8 0 0 1 10.8,13.5 H4.2 A1.8,1.8 0 0 1 2.4,11.7 V4.3 A1.8,1.8 0 0 1 4.2,2.5 Z M5.5,5.1 V10.8 H10.1"); }
+        static System.Windows.Shapes.Path LinearIcon() { return FillIcon("M 2.886 4.18 A 11.982 11.982 0 0 1 11.99 0 C 18.624 0 24 5.376 24 12.009 c 0 3.64 -1.62 6.903 -4.18 9.105 L 2.887 4.18 Z M 1.817 5.626 l 16.556 16.556 c -0.524 0.33 -1.075 0.62 -1.65 0.866 L 0.951 7.277 c 0.247 -0.575 0.537 -1.126 0.866 -1.65 Z M 0.322 9.163 l 14.515 14.515 c -0.71 0.172 -1.443 0.282 -2.195 0.322 L 0 11.358 a 12 12 0 0 1 0.322 -2.195 Z m -0.17 4.862 9.823 9.824 a 12.02 12.02 0 0 1 -9.824 -9.824 Z"); }
         Button IconToolbarButton(UIElement icon,string label,string id) {
             var button=new Button { Width=32, Height=32, Padding=new Thickness(6), ToolTip=label, Content=icon };
             AutomationProperties.SetAutomationId(button,id); AutomationProperties.SetName(button,label); return button;
