@@ -182,12 +182,13 @@ namespace DesktopNotes {
         readonly DispatcherTimer editTimer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(550) };
         readonly DispatcherTimer positionTimer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(650) };
         Button pin;
+        HwndSource closeSource;
         TextBlock headingTitle;
         Note editing;
         string editingSection;
         TextBox titleInput,contentInput;
         TextBlock editorStatus,settingsStatus;
-        bool settingUp, composing, loaded, savingError;
+        bool settingUp, composing, loaded, savingError, allowExit;
         string view="board";
         Dictionary<string,TextBox> colorInputs=new Dictionary<string,TextBox>();
         Dictionary<string,TextBox> sectionNames=new Dictionary<string,TextBox>();
@@ -217,7 +218,7 @@ namespace DesktopNotes {
             pin=IconButton("\uE718","置顶窗口","Pin",()=> { Topmost=!Topmost; store.Data.Window.Topmost=Topmost; UpdatePin(); SyncNativePin(); Persist(); }); tools.Children.Add(pin);
             tools.Children.Add(IconButton("\uE713","设置","Settings",OpenSettings));
             tools.Children.Add(IconButton("\uE921","最小化","Minimize",()=>WindowState=WindowState.Minimized));
-            tools.Children.Add(IconButton("\uE8BB","关闭窗口","Close",Close)); main.Children.Add(header);
+            tools.Children.Add(IconButton("\uE8BB","最小化到任务栏","Close",Close)); main.Children.Add(header);
             var scroll=new ScrollViewer { Content=board, VerticalScrollBarVisibility=ScrollBarVisibility.Auto, HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled, Padding=new Thickness(22,0,22,12), CanContentScroll=false }; Grid.SetRow(scroll,1); main.Children.Add(scroll);
             var footer=new Grid { Margin=new Thickness(22,11,22,13) }; footer.ColumnDefinitions.Add(new ColumnDefinition()); footer.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
             status.FontSize=10.5; status.SetResourceReference(TextBlock.ForegroundProperty,"MutedBrush"); status.Text="保存在此电脑"; status.TextTrimming=TextTrimming.CharacterEllipsis; status.ToolTip=store.FilePath;
@@ -226,9 +227,11 @@ namespace DesktopNotes {
             editTimer.Tick+=(s,e)=> { editTimer.Stop(); if(!composing) FlushEditor(); };
             positionTimer.Tick+=(s,e)=> { positionTimer.Stop(); SavePlacement(); Persist(); };
             LocationChanged+=(s,e)=>SchedulePosition(); SizeChanged+=(s,e)=>SchedulePosition();
+            SourceInitialized+=(s,e)=>InstallCloseToTaskbar();
             Loaded+=(s,e)=> { loaded=true; ApplyNativeFrame(); SyncNativePin(); if(!string.IsNullOrEmpty(store.RecoveryNotice)) MessageBox.Show(this,store.RecoveryNotice,"数据恢复",MessageBoxButton.OK,MessageBoxImage.Information); };
-            StateChanged+=(s,e)=> { if(loaded && WindowState==WindowState.Normal) SyncNativePin(); };
-            Closing+=(s,e)=> { positionTimer.Stop(); if(!FlushEditor() || (view=="sections" && !CommitSections())) { e.Cancel=true; return; } SavePlacement(); if(!Persist()) e.Cancel=true; };
+            StateChanged+=(s,e)=> { if(loaded && WindowState==WindowState.Normal) SyncNativePin(); EnsureExitMenuItem(); };
+            if(Application.Current!=null) Application.Current.SessionEnding+=(s,e)=>allowExit=true;
+            Closing+=(s,e)=> { positionTimer.Stop(); if(!FlushEditor() || (view=="sections" && !CommitSections())) { e.Cancel=true; return; } SavePlacement(); if(!Persist()) { e.Cancel=true; return; } if(!allowExit) { if(WindowState==WindowState.Minimized) { allowExit=true; return; } e.Cancel=true; WindowState=WindowState.Minimized; } };
             Closed+=(s,e)=> { editTimer.Stop(); positionTimer.Stop(); };
             PreviewKeyDown+=(s,e)=> { if(e.Key==Key.Escape && view!="board") { CloseOverlay(); e.Handled=true; } if(e.Key==Key.S && Keyboard.Modifiers==ModifierKeys.Control) { FlushEditor(); Persist(); e.Handled=true; } };
             RestorePlacement(); RenderBoard(); UpdatePin();
@@ -247,6 +250,11 @@ namespace DesktopNotes {
         static string SectionBrush(string section) { return "Section-"+section+"-Brush"; }
         void UpdatePin() { pin.SetResourceReference(BackgroundProperty,Topmost?"SelectionBrush":"CanvasBrush"); pin.ToolTip=Topmost?"取消置顶":"置顶窗口"; AutomationProperties.SetName(pin,Topmost?"取消置顶":"置顶窗口"); }
         [DllImport("user32.dll",SetLastError=true)] static extern bool SetWindowPos(IntPtr handle,IntPtr after,int x,int y,int width,int height,uint flags);
+        [DllImport("user32.dll")] static extern IntPtr GetSystemMenu(IntPtr hWnd,bool bRevert);
+        [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern bool AppendMenu(IntPtr hMenu,uint uFlags,IntPtr uIDNewItem,string lpNewItem);
+        [DllImport("user32.dll")] static extern int GetMenuItemCount(IntPtr hMenu);
+        [DllImport("user32.dll")] static extern int GetMenuItemID(IntPtr hMenu,int nPos);
+        const int WmSysCommand=0x0112, WmInitMenu=0x0116, WmInitMenuPopup=0x0117, ScExit=0x1120;
         void SyncNativePin() {
             var currentHandle=new WindowInteropHelper(this).Handle;
             if(currentHandle!=IntPtr.Zero) SetWindowPos(currentHandle,new IntPtr(Topmost?-1:-2),0,0,0,0,0x13);
@@ -255,6 +263,31 @@ namespace DesktopNotes {
                 if(handle!=IntPtr.Zero) SetWindowPos(handle,new IntPtr(Topmost?-1:-2),0,0,0,0,0x13);
             }),DispatcherPriority.ContextIdle);
         }
+        void InstallCloseToTaskbar() {
+            if(closeSource!=null) return;
+            var handle=new WindowInteropHelper(this).Handle;
+            if(handle==IntPtr.Zero) return;
+            closeSource=HwndSource.FromHwnd(handle);
+            if(closeSource!=null) closeSource.AddHook(WindowProc);
+            EnsureExitMenuItem();
+        }
+        IntPtr WindowProc(IntPtr hwnd,int msg,IntPtr wParam,IntPtr lParam,ref bool handled) {
+            if(msg==WmSysCommand && wParam.ToInt64()==ScExit) { handled=true; ExitApplication(); return IntPtr.Zero; }
+            if(msg==WmInitMenu || msg==WmInitMenuPopup) EnsureExitMenuItem();
+            return IntPtr.Zero;
+        }
+        void EnsureExitMenuItem() {
+            if(closeSource==null) return;
+            var handle=new WindowInteropHelper(this).Handle;
+            if(handle==IntPtr.Zero) return;
+            var menu=GetSystemMenu(handle,false);
+            if(menu==IntPtr.Zero) return;
+            int count=GetMenuItemCount(menu);
+            for(int i=0;i<count;i++) if(GetMenuItemID(menu,i)==ScExit) return;
+            AppendMenu(menu,0x800,IntPtr.Zero,null);
+            AppendMenu(menu,0,new IntPtr(ScExit),"退出");
+        }
+        void ExitApplication() { allowExit=true; Close(); }
         void RestorePlacement() {
             var p=store.Data.Window;
             Width=Math.Max(MinWidth,Math.Min(p.Width,SystemParameters.VirtualScreenWidth)); Height=Math.Max(MinHeight,Math.Min(p.Height,SystemParameters.WorkArea.Height));
