@@ -25,6 +25,28 @@ public static class Verify {
     static void Capture(NotesWindow w,string name) { w.UpdateLayout(); Pump(); var bitmap=new RenderTargetBitmap((int)w.ActualWidth*2,(int)w.ActualHeight*2,192,192,PixelFormats.Pbgra32); var visual=new DrawingVisual(); using(var drawing=visual.RenderOpen()) { drawing.DrawRectangle(w.Background,null,new Rect(0,0,w.ActualWidth,w.ActualHeight)); drawing.DrawRectangle(new VisualBrush((Visual)w.Content),null,new Rect(0,0,w.ActualWidth,w.ActualHeight)); } bitmap.Render(visual); var encoder=new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using(var file=File.Create(Path.Combine(folder,name+".png"))) encoder.Save(file); }
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h,int command);
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h,int index);
+    static string VisualText(DependencyObject node) {
+        var sb=new StringBuilder(); WalkText(node,sb); return sb.ToString();
+    }
+    static void WalkText(DependencyObject node,StringBuilder sb) {
+        var text=node as TextBlock; if(text!=null) sb.AppendLine(text.Text);
+        foreach(object child in LogicalTreeHelper.GetChildren(node)) { var next=child as DependencyObject; if(next!=null) WalkText(next,sb); }
+    }
+    static void LinearBoardTests() {
+        string json="{\"data\":{\"viewer\":{\"id\":\"u\",\"name\":\"Zoey\"},\"projects\":{\"nodes\":[{\"id\":\"p1\",\"name\":\"桌面便签\",\"url\":\"https://linear.app/p1\",\"updatedAt\":\"2026-10-18T00:00:00.000Z\",\"color\":\"#5e6ad2\",\"status\":{\"name\":\"In Progress\",\"type\":\"started\"},\"content\":\"第一性原理\"},{\"id\":\"p2\",\"name\":\"空项目\",\"description\":\"不应出现的描述\",\"status\":{\"name\":\"Planned\",\"type\":\"planned\"}}]},\"issues\":{\"nodes\":[{\"id\":\"i1\",\"identifier\":\"AOX-2\",\"title\":\"继续做\",\"url\":\"https://linear.app/i1\",\"updatedAt\":\"2026-10-18T01:00:00.000Z\",\"priority\":2,\"state\":{\"name\":\"Todo\",\"type\":\"unstarted\"},\"project\":{\"id\":\"p1\",\"name\":\"桌面便签\"}},{\"id\":\"i2\",\"identifier\":\"AOX-9\",\"title\":\"游离事项\",\"url\":\"https://linear.app/i2\",\"updatedAt\":\"2026-10-17T01:00:00.000Z\",\"priority\":0,\"state\":{\"name\":\"Backlog\",\"type\":\"backlog\"},\"project\":null},{\"id\":\"i3\",\"identifier\":\"AOX-1\",\"title\":\"做完了\",\"state\":{\"name\":\"Done\",\"type\":\"completed\"},\"project\":{\"id\":\"p2\",\"name\":\"空项目\"}}]}}}";
+        var snapshot=LinearApiClient.ParseResponse(json);
+        Check(snapshot.Projects.Count==2 && snapshot.Issues.Count==3 && snapshot.Projects[0].Color=="#5e6ad2","Linear response keeps projects and issues");
+        var groups=LinearIssueGroups.Build(snapshot);
+        Check(groups.Count==2 && groups[0].Title=="桌面便签" && groups[0].Issues.Count==1 && groups[0].Issues[0].Identifier=="AOX-2","open issues stay under the project title");
+        Check(groups[1].Unassigned && groups[1].Title=="无项目" && groups[1].Issues[0].Identifier=="AOX-9","issues without a project are listed");
+        Check(groups.All(g=>g.Title!="空项目"),"project without open issues is omitted");
+        var board=new StackPanel(); var status=new TextBlock(); var count=new TextBlock();
+        LinearBoardView.Render(board,status,count,snapshot);
+        string text=VisualText(board);
+        Check(text.Contains("桌面便签") && text.Contains("AOX-2") && text.Contains("继续做") && text.Contains("无项目") && text.Contains("AOX-9"),"board lists open issues and unassigned issues");
+        Check(!text.Contains("空项目") && !text.Contains("不应出现的描述") && !text.Contains("第一性原理") && !text.Contains("做完了") && !text.Contains("暂无 Linear 文档"),"project descriptions and finished issues are hidden");
+        Check(count.Text=="1 个项目 · 2 条待办","count reports visible projects and open issues");
+    }
     static void StoreTests() {
         var store=new NotesStore(Path.Combine(folder,"storage","notes.json")); store.Load();
         Check(store.Data.Notes.Count==0,"fresh state is empty");
@@ -61,7 +83,24 @@ public static class Verify {
     }
     static void UiTests() {
         var store=new NotesStore(Path.Combine(folder,"ui","notes.json")); store.Load();
-        var w=new NotesWindow(store) { ShowActivated=false,Left=-10000,Top=-10000 }; w.Show(); ShowWindow(new WindowInteropHelper(w).Handle,4); Pump(); Capture(w,"empty");
+        var w=new NotesWindow(store) { ShowActivated=false,Left=-10000,Top=-10000 }; w.Show(); ShowWindow(new WindowInteropHelper(w).Handle,4); Pump();
+        LinearIntegration.Attach(w,store); LinearIntegrationPolish.Attach(w); Pump();
+        var notesBtn=Find(w,"NotesSource") as Button; var linearBtn=Find(w,"LinearSource") as Button;
+        Check(notesBtn!=null && notesBtn.Content is System.Windows.Shapes.Path,"notes button has a drawn icon");
+        Check(linearBtn!=null && linearBtn.Content is System.Windows.Shapes.Path,"Linear button has a drawn icon");
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="便签","notes view title is 便签");
+        Capture(w,"empty");
+        var flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var board=(StackPanel)typeof(NotesWindow).GetField("board",flags).GetValue(w);
+        var status=(TextBlock)typeof(NotesWindow).GetField("status",flags).GetValue(w);
+        var count=(TextBlock)typeof(NotesWindow).GetField("count",flags).GetValue(w);
+        var integration=w.Tag; var linearType=integration.GetType();
+        linearType.GetField("linearMode",flags).SetValue(integration,true); linearType.GetMethod("SetModeButtons",flags).Invoke(integration,null);
+        LinearBoardView.Render(board,status,count,LinearApiClient.ParseResponse("{\"data\":{\"viewer\":{\"name\":\"Zoey\"},\"projects\":{\"nodes\":[{\"id\":\"p1\",\"name\":\"桌面便签\",\"url\":\"https://linear.app/p1\",\"color\":\"#5e6ad2\",\"status\":{\"name\":\"In Progress\"}},{\"id\":\"p2\",\"name\":\"空项目\",\"description\":\"不应出现\",\"status\":{\"name\":\"Planned\"}}]},\"issues\":{\"nodes\":[{\"id\":\"i1\",\"identifier\":\"AOX-7\",\"title\":\"Linear UI 改进\",\"url\":\"https://linear.app/i1\",\"updatedAt\":\"2026-10-18T01:00:00.000Z\",\"state\":{\"name\":\"Todo\",\"type\":\"unstarted\"},\"project\":{\"id\":\"p1\",\"name\":\"桌面便签\"}},{\"id\":\"i2\",\"identifier\":\"AOX-9\",\"title\":\"没有项目的事项\",\"url\":\"https://linear.app/i2\",\"updatedAt\":\"2026-10-17T01:00:00.000Z\",\"state\":{\"name\":\"Backlog\",\"type\":\"backlog\"}}]}}}"));
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="待办","Linear view title is 待办");
+        Check(Find(w,"LinearRefresh").Visibility==Visibility.Visible,"refresh appears in Linear view");
+        Capture(w,"linear-todo");
+        linearType.GetField("linearMode",flags).SetValue(integration,false); linearType.GetMethod("SetModeButtons",flags).Invoke(integration,null); w.RenderBoard();
         foreach(string section in new[]{"product","custom","personal"}) Check(Find(w,"Add-"+section)!=null,"add control for "+section);
         Click(w,"Add-product"); Input(w,"TitleInput","示例 · 标品项目"); Input(w,"ContentInput","现状：核心流程已完成。\n下一步：核对范围与验收清单。\n待确认：发布安排。"); Pump(750);
         Check(NotesStore.Read(store.FilePath).Notes.Count==1,"editor autosaves before Done"); string original=store.Data.Notes[0].CreatedUtc; string noteId=store.Data.Notes[0].Id; Click(w,"EditorDone");
@@ -98,7 +137,7 @@ public static class Verify {
     }
     [STAThread] public static int Main(string[] args) {
         folder=Path.GetFullPath(args[0]); Directory.CreateDirectory(folder); var app=new Application { ShutdownMode=ShutdownMode.OnExplicitShutdown };
-        try { StoreTests(); SectionTests(); if(args.Length<2 || args[1]!="--store-only") UiTests(); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
+        try { LinearBoardTests(); StoreTests(); SectionTests(); if(args.Length<2 || args[1]!="--store-only") UiTests(); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
         catch(Exception e) { checks.Add("FAIL "+e); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 1; }
     }
 }

@@ -1,8 +1,8 @@
 # 桌面便签 · Desktop Notes
 
-一个极简的 Windows 桌面便签工具。保留原来的本地便签，同时可以连接 Linear，在同一个小窗口里查看项目与项目文档。
+一个极简的 Windows 桌面便签工具。保留原来的本地便签，同时可以连接 Linear，在同一个小窗口里查看未完成的待办。
 
-A small Windows notes app with customizable local sections plus a lightweight, read-only Linear projects and documents view. Built with C# and WPF. The interface is currently in Simplified Chinese.
+A small Windows notes app with customizable local sections plus a lightweight, read-only Linear todo view. Built with C# and WPF. The interface is currently in Simplified Chinese.
 
 ![便签与分区管理示例](docs/preview.png)
 
@@ -15,23 +15,23 @@ A small Windows notes app with customizable local sections plus a lightweight, r
 - 点击分区右侧的 **＋**，输入标题与多行内容。暂停输入约半秒后自动保存。
 - 点击标题或编辑图标继续修改，长内容可展开、收起。
 - 创建时间会持续保留；修改内容时另记更新时间。悬停时间或进入编辑界面查看完整记录。
-- 顶部 **L** 按钮切换到 Linear 项目视图；再次点击返回本地便签。
+- 顶部便签与 Linear 图标在本地便签和待办之间切换。进入待办时，左上角标题改为「待办」。
 - 拖动顶部移动窗口，拖动边缘缩放，图钉按钮控制置顶。
 - 窗口位置、大小和置顶状态会在下次启动时恢复。再次运行程序会唤回已有窗口。
 - `Ctrl+S` 立即保存，`Esc` 返回上一层。
 
-## Linear 项目与文档
+## Linear 待办
 
-首次进入 Linear 视图时输入 Linear Personal API Key。密钥用 Windows DPAPI（CurrentUser）加密后单独保存在本机，不会写入 `notes.json` 或便签备份。
+首次进入待办视图时输入 Linear Personal API Key。密钥用 Windows DPAPI（CurrentUser）加密后单独保存在本机，不会写入 `notes.json` 或便签备份。
 
 当前 Linear 集成为只读模式：
 
-- Linear Project 显示为项目分组，并显示项目摘要与状态。
-- Linear Document 显示为便签风格的卡片。
-- 长文档可以直接在窗口里展开与收起。
-- 卡片右上角的 `↗` 可以打开对应 Linear 页面。
-- Linear 视图中的刷新按钮会重新读取项目与文档。
-- 右键顶部 **L** 按钮可以管理或断开 Linear 连接。
+- 只显示仍有未完成 Issue 的 Project 标题，不显示项目描述。
+- 每个 Project 下列出未完成 Issue；没有 Project 的 Issue 也会列出。
+- 没有任何未完成 Issue 的 Project 不显示。
+- 卡片右侧的 `↗` 可以打开对应 Linear 页面。
+- 待办视图中的刷新按钮会重新读取 Issue。
+- 右键 Linear 图标可以管理或断开 Linear 连接。
 
 更多连接说明见 [`docs/linear.md`](docs/linear.md)。
 
