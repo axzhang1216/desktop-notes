@@ -19,7 +19,7 @@ jobs:
       - name: Package Windows build
         shell: pwsh
         run: |
-          $version = '1.4.0'
+          $version = '1.5.0'
           $dist = Join-Path $PWD 'dist'
           $stage = Join-Path $dist 'package'
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -36,24 +36,24 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DesktopNotes-v1.4.0-Windows
+          name: DesktopNotes-v1.5.0-Windows
           path: |
-            dist/DesktopNotes-v1.4.0-Windows.zip
-            dist/DesktopNotes-v1.4.0-SHA256.txt
+            dist/DesktopNotes-v1.5.0-Windows.zip
+            dist/DesktopNotes-v1.5.0-SHA256.txt
           retention-days: 14
 
-      - name: Publish v1.4.0 release
+      - name: Publish v1.5.0 release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = 'v1.4.0'
+          $tag = 'v1.5.0'
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag `
-              .\dist\DesktopNotes-v1.4.0-Windows.zip `
-              .\dist\DesktopNotes-v1.4.0-SHA256.txt `
+              .\dist\DesktopNotes-v1.5.0-Windows.zip `
+              .\dist\DesktopNotes-v1.5.0-SHA256.txt `
               --repo $env:GITHUB_REPOSITORY `
               --clobber
             Write-Host "$tag assets refreshed."
@@ -61,20 +61,20 @@ jobs:
           }
 
           $notes = @"
-          桌面便签 v1.4.0 更新 Linear 图标与切换动画，并支持关闭时最小化到任务栏。
+          桌面便签 v1.5.0 新增每日总结与潜在问题两个页面，可以直接让 Apocalypse 重新生成。
 
-          - 工具栏 Linear 图标换成 Linear 官方标志。
-          - 便签与待办视图切换时，内容区做一次卡片翻转动画。
-          - 点击 × 或按 Alt+F4 关闭时，便签最小化到任务栏而不是退出。
-          - 在任务栏右键图标选择「退出」，或在最小化状态再次选择「关闭」，即可真正关闭程序。
+          - 工具栏新增「总结」和「潜在问题」两个页面，读取 Apocalypse 的每日总结。
+          - 「总结」按今日、昨日列出每个项目的需求与进展；「潜在问题」列出还没做完的事。
+          - 打开页面或点刷新时，如果总结缺失或超过一小时没更新，便签直接调用 Apocalypse 重新生成，Apocalypse 后台没启动也能用。
+          - 右键刷新按钮可以强制重新生成。
 
-          下载 DesktopNotes-v1.4.0-Windows.zip，解压后运行 DesktopNotes.exe。
+          下载 DesktopNotes-v1.5.0-Windows.zip，解压后运行 DesktopNotes.exe。
           "@
 
           gh release create $tag `
-            .\dist\DesktopNotes-v1.4.0-Windows.zip `
-            .\dist\DesktopNotes-v1.4.0-SHA256.txt `
+            .\dist\DesktopNotes-v1.5.0-Windows.zip `
+            .\dist\DesktopNotes-v1.5.0-SHA256.txt `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
-            --title 'v1.4.0 · 关闭最小化到任务栏' `
+            --title 'v1.5.0 · 每日总结与潜在问题' `
             --notes $notes
