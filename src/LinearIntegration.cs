@@ -17,6 +17,8 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 
 namespace DesktopNotes {
     public sealed class LinearProjectItem {
@@ -419,7 +421,7 @@ namespace DesktopNotes {
         }
 
         void ShowLocal() {
-            linearMode=false; SetModeButtons(); window.RenderBoard(); status.Text="保存在此电脑";
+            linearMode=false; SetModeButtons(); PresentBoard(false, () => window.RenderBoard()); status.Text="保存在此电脑";
         }
 
         void SetModeButtons() {
@@ -434,7 +436,12 @@ namespace DesktopNotes {
         static void Highlight(Button button,bool active) { if(button!=null) button.SetResourceReference(Control.BackgroundProperty,active?"SelectionBrush":"CanvasBrush"); }
 
         void RenderLinear(LinearSnapshot snapshot) {
-            linearMode=true; SetModeButtons(); LinearBoardView.Render(board,status,count,snapshot);
+            linearMode=true; SetModeButtons(); PresentBoard(true, () => LinearBoardView.Render(board,status,count,snapshot));
+        }
+        void PresentBoard(bool linear, Action render) {
+            bool showingLinear=board.Children.Count==1 && AutomationProperties.GetAutomationId(board.Children[0])=="LinearPolishedRoot";
+            if(showingLinear==linear) render();
+            else CardFlip.Run(root, board, render, linear);
         }
         TextBlock Text(string value,double size,string brush,bool bold=false,Thickness? margin=null) {
             var text=new TextBlock { Text=value??"",FontFamily=new FontFamily("Microsoft YaHei UI"),FontSize=size,FontWeight=bold?FontWeights.SemiBold:FontWeights.Normal,TextWrapping=TextWrapping.Wrap,Margin=margin??new Thickness(0) };
@@ -465,6 +472,59 @@ namespace DesktopNotes {
 
         void CloseSetup() { if(setupOverlay==null) return; root.Children.Remove(setupOverlay); setupOverlay=null; }
         void ShowError(string title,Exception error) { MessageBox.Show(window,title+"\n\n"+error.Message,"Linear",MessageBoxButton.OK,MessageBoxImage.Error); }
+    }
+
+    public static class CardFlip {
+        public const string FrontId="CardFlipFront";
+        static int ticket;
+        static Grid layer;
+        static FrameworkElement face;
+
+        public static void Run(Grid root, FrameworkElement page, Action swap, bool forward) {
+            int mine=++ticket;
+            FrameworkElement host=page==null?null:page.Parent as FrameworkElement;
+            Clear(host);
+            if(root==null || host==null || host.ActualWidth<8 || host.ActualHeight<8) { swap(); return; }
+            bool swapped=false;
+            try {
+                host.UpdateLayout();
+                int width=Math.Max(1,(int)Math.Ceiling(host.ActualWidth));
+                int height=Math.Max(1,(int)Math.Ceiling(host.ActualHeight));
+                var bitmap=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
+                bitmap.Render(host);
+                var front=new Image { Source=bitmap, Width=width, Height=height, Stretch=Stretch.Fill, IsHitTestVisible=false, RenderTransformOrigin=new Point(0.5,0.5) };
+                AutomationProperties.SetAutomationId(front,FrontId);
+                layer=new Grid { Width=width, Height=height, IsHitTestVisible=false, HorizontalAlignment=HorizontalAlignment.Left, VerticalAlignment=VerticalAlignment.Top };
+                Point origin=host.TransformToAncestor(root).Transform(new Point(0,0));
+                layer.Margin=new Thickness(origin.X,origin.Y,0,0); layer.Children.Add(front); Panel.SetZIndex(layer,40); root.Children.Add(layer);
+                var frontScale=new ScaleTransform(1,1); var frontSkew=new SkewTransform();
+                front.RenderTransform=new TransformGroup { Children={ frontSkew, frontScale } };
+                var backScale=new ScaleTransform(0,1);
+                host.RenderTransformOrigin=new Point(0.5,0.5); host.RenderTransform=backScale; face=host;
+                swap(); swapped=true;
+                frontSkew.BeginAnimation(SkewTransform.AngleYProperty,new DoubleAnimation(0,forward?-16:16,TimeSpan.FromMilliseconds(170)));
+                var hide=new DoubleAnimation(1,0,TimeSpan.FromMilliseconds(170)) { EasingFunction=new CubicEase { EasingMode=EasingMode.EaseIn } };
+                hide.Completed+=(s,e)=> {
+                    if(mine!=ticket) return;
+                    if(layer!=null) { root.Children.Remove(layer); layer=null; }
+                    var show=new DoubleAnimation(0,1,TimeSpan.FromMilliseconds(210)) { EasingFunction=new CubicEase { EasingMode=EasingMode.EaseOut } };
+                    show.Completed+=(s2,e2)=> { if(mine==ticket) Clear(host); };
+                    backScale.BeginAnimation(ScaleTransform.ScaleXProperty,show);
+                };
+                frontScale.BeginAnimation(ScaleTransform.ScaleXProperty,hide);
+            } catch {
+                Clear(host);
+                if(!swapped) swap();
+            }
+        }
+
+        static void Clear(FrameworkElement host) {
+            if(layer!=null) { var parent=layer.Parent as Panel; if(parent!=null) parent.Children.Remove(layer); layer=null; }
+            if(face!=null && face!=host) { face.BeginAnimation(UIElement.RenderTransformProperty,null); face.RenderTransform=null; face.RenderTransformOrigin=new Point(0,0); }
+            face=null;
+            if(host==null) return;
+            host.BeginAnimation(UIElement.RenderTransformProperty,null); host.RenderTransform=null; host.RenderTransformOrigin=new Point(0,0);
+        }
     }
 
     public static class LinearProgram {
