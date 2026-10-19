@@ -25,6 +25,10 @@ public static class Verify {
     static void Capture(NotesWindow w,string name) { w.UpdateLayout(); Pump(); var bitmap=new RenderTargetBitmap((int)w.ActualWidth*2,(int)w.ActualHeight*2,192,192,PixelFormats.Pbgra32); var visual=new DrawingVisual(); using(var drawing=visual.RenderOpen()) { drawing.DrawRectangle(w.Background,null,new Rect(0,0,w.ActualWidth,w.ActualHeight)); drawing.DrawRectangle(new VisualBrush((Visual)w.Content),null,new Rect(0,0,w.ActualWidth,w.ActualHeight)); } bitmap.Render(visual); var encoder=new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using(var file=File.Create(Path.Combine(folder,name+".png"))) encoder.Save(file); }
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h,int command);
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h,int index);
+    [DllImport("user32.dll")] static extern IntPtr GetSystemMenu(IntPtr hWnd,bool bRevert);
+    [DllImport("user32.dll")] static extern int GetMenuItemCount(IntPtr hMenu);
+    [DllImport("user32.dll")] static extern int GetMenuItemID(IntPtr hMenu,int nPos);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hWnd,int msg,IntPtr wParam,IntPtr lParam);
     static string VisualText(DependencyObject node) {
         var sb=new StringBuilder(); WalkText(node,sb); return sb.ToString();
     }
@@ -144,9 +148,33 @@ public static class Verify {
         Check(next.Width==470 && next.Height==760 && next.Left==110 && next.Top==80 && next.Topmost,"window size position and pin survive restart");
         Check(reopened.Data.Notes.Count==4 && reopened.Data.Theme.Name=="自定义" && reopened.Data.Notes[0].CreatedUtc==original,"notes palette and timestamps survive restart"); Check(reopened.Section("product").Name=="工作" && reopened.Data.Sections[1].Id==addedId,"section names colors and order survive restart"); next.Left=-10000; next.Top=-10000; next.Show(); Pump(); next.Close();
     }
+    static bool MenuHasItem(IntPtr menu,int id) {
+        int count=GetMenuItemCount(menu);
+        for(int i=0;i<count;i++) if(GetMenuItemID(menu,i)==id) return true;
+        return false;
+    }
+    static void CloseToTaskbarTests() {
+        var store=new NotesStore(Path.Combine(folder,"close","notes.json")); store.Load();
+        var w=new NotesWindow(store) { ShowActivated=false,Left=-10000,Top=-10000 }; w.Show(); ShowWindow(new WindowInteropHelper(w).Handle,4); Pump();
+        w.Close(); Pump();
+        Check(w.IsVisible && w.WindowState==WindowState.Minimized,"close minimizes to taskbar instead of exiting");
+        Check(File.Exists(store.FilePath),"close still saves the notes before minimizing");
+        var menu=GetSystemMenu(new WindowInteropHelper(w).Handle,false);
+        Check(menu!=IntPtr.Zero && MenuHasItem(menu,0x1120),"taskbar context menu offers an exit command");
+        w.Close(); Pump(200);
+        Check(!w.IsVisible && !w.IsLoaded,"closing again while minimized exits the app");
+    }
+    static void ExitCommandTests() {
+        var store=new NotesStore(Path.Combine(folder,"exit","notes.json")); store.Load();
+        var w=new NotesWindow(store) { ShowActivated=false,Left=-10000,Top=-10000 }; w.Show(); ShowWindow(new WindowInteropHelper(w).Handle,4); Pump();
+        w.Close(); Pump();
+        w.WindowState=WindowState.Normal; Pump();
+        PostMessage(new WindowInteropHelper(w).Handle,0x0112,new IntPtr(0x1120),IntPtr.Zero); Pump(400);
+        Check(!w.IsVisible && !w.IsLoaded,"exit command from the taskbar menu closes the app");
+    }
     [STAThread] public static int Main(string[] args) {
         folder=Path.GetFullPath(args[0]); Directory.CreateDirectory(folder); var app=new Application { ShutdownMode=ShutdownMode.OnExplicitShutdown };
-        try { LinearBoardTests(); StoreTests(); SectionTests(); if(args.Length<2 || args[1]!="--store-only") UiTests(); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
+        try { LinearBoardTests(); StoreTests(); SectionTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
         catch(Exception e) { checks.Add("FAIL "+e); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 1; }
     }
 }
