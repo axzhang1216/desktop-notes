@@ -41,9 +41,10 @@ public static class Verify {
     }
     static string SampleBrief(string date,string headline,string project,string leftoverProject,string leftover,string generatedAt=null) {
         return "{\"date\":\""+date+"\",\"generated_at\":\""+(generatedAt??date+"T01:33:25Z")+"\",\"headline\":\""+headline+"\","
-            +"\"projects\":[{\"project\":\""+project+"\",\"need\":\"把总结和潜在问题放进便签。\",\"progress\":\"已经接上 Apocalypse 的每日总结。\",\"status\":\"partial\"}],"
-            +"\"leftovers\":[{\"project\":\""+leftoverProject+"\",\"item\":\""+leftover+"\",\"why\":\"结论里没有写。\"}],"
-            +"\"notes\":\"证据偏薄。\",\"evidence\":{\"episodes\":4,\"live\":4,\"batch\":0}}";
+            +"\"projects\":["
+            +"{\"project\":\""+project+"\",\"done\":[\"完成事项一\",\"完成事项二\"],\"pending\":[],\"user_action\":\"\"},"
+            +"{\"project\":\""+leftoverProject+"\",\"done\":[],\"pending\":[\""+leftover+"\",\"另一件未完成事项\"],\"user_action\":\"请在终端重连后告知\"}"
+            +"],\"notes\":\"证据偏薄。\",\"evidence\":{\"episodes\":4,\"live\":4,\"batch\":0}}";
     }
     static void BriefTests() {
         string directory=Path.Combine(folder,"briefs"); Directory.CreateDirectory(directory);
@@ -52,16 +53,27 @@ public static class Verify {
         File.WriteAllText(Path.Combine(directory,yesterday+".json"),SampleBrief(yesterday,"昨日标题","昨日项目","昨日遗留项目","昨日遗留问题"),new UTF8Encoding(false));
         var store=new ApocalypseBriefStore(directory); store.Load();
         Check(store.Today!=null && store.Yesterday!=null && store.Days().Count==2,"today and yesterday briefs load from the Apocalypse folder");
-        Check(store.Today.Headline=="今日标题" && store.Today.Projects.Count==1 && store.Today.Projects[0].Project=="今日项目" && store.Today.Projects[0].Status=="partial" && store.Today.Episodes==4 && store.Today.Generated!=null,"brief projects evidence and generation time parse");
+        Check(store.Today.Headline=="今日标题" && store.Today.Episodes==4 && store.Today.Generated!=null && store.Today.Projects.Count==2,"brief headline evidence and generation time parse");
+        Check(store.Today.Projects[0].Project=="今日项目" && store.Today.Projects[0].Done.Count==2 && store.Today.Projects[0].Pending.Count==0,"done items parse per project");
+        Check(store.Today.Projects[1].Pending.Count==2 && store.Today.Projects[1].UserAction=="请在终端重连后告知","pending items and user action parse per project");
         var board=new StackPanel(); var status=new TextBlock(); var count=new TextBlock();
         ApocalypseBriefView.RenderSummary(board,status,count,store);
         string text=VisualText(board);
-        Check(text.Contains("今日标题") && text.Contains("今日项目") && text.Contains("昨日标题") && text.Contains("昨日项目") && text.Contains("部分完成"),"summary lists today and yesterday projects with status");
-        Check(text.Contains("需求") && text.Contains("进展") && !text.Contains("今日遗留问题"),"summary shows need and progress without leftovers");
-        Check(count.Text=="2 个项目","summary counts projects");
+        Check(text.Contains("今日标题") && text.Contains("今日项目") && text.Contains("昨日标题") && text.Contains("昨日项目") && text.Contains("完成事项一"),"summary lists today and yesterday with finished items");
+        Check(!text.Contains("今日遗留问题") && !text.Contains("另一件未完成事项") && !text.Contains("需要你做"),"summary hides pending items and user actions");
+        Check(count.Text=="2 个项目","summary counts projects with finished items");
+        var toggle=Find(board,"BriefToggle-summary-0") as Button; var body=Find(board,"BriefBody-summary-0") as FrameworkElement;
+        Check(toggle!=null && body!=null && body.Visibility==Visibility.Visible,"summary items start expanded");
+        toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(body.Visibility==Visibility.Collapsed,"a project collapses to its name");
+        toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(body.Visibility==Visibility.Visible,"a project expands again");
         board=new StackPanel(); ApocalypseBriefView.RenderIssues(board,status,count,store); text=VisualText(board);
-        Check(text.Contains("今日遗留问题") && text.Contains("昨日遗留问题") && !text.Contains("今日项目"),"issues page lists only leftovers");
-        Check(count.Text=="2 条待解决","issues page counts leftovers");
+        Check(text.Contains("今日遗留问题") && text.Contains("另一件未完成事项") && text.Contains("昨日遗留问题") && !text.Contains("今日项目") && !text.Contains("完成事项一"),"issues page lists only unfinished items");
+        Check(text.Contains("需要你做：") && text.Contains("请在终端重连后告知"),"issues page shows what the user must do");
+        Check(count.Text=="6 条待解决","issues page counts unfinished items and user actions");
+        var legacy=ApocalypseBriefReader.Parse("{\"date\":\"2026-10-01\",\"projects\":[{\"project\":\"旧格式\",\"progress\":\"旧进展一。旧进展二。\",\"status\":\"done\"},{\"project\":\"旧格式二\",\"progress\":\"旧未完成；\",\"status\":\"partial\"}]}");
+        Check(legacy.Projects[0].Done.Count==2 && legacy.Projects[0].Pending.Count==0 && legacy.Projects[1].Pending.Count==1,"old brief progress maps to done or pending");
         var missing=new ApocalypseBriefStore(Path.Combine(folder,"briefs-empty")); missing.Load();
         board=new StackPanel(); ApocalypseBriefView.RenderSummary(board,status,count,missing);
         Check(missing.Days().Count==0 && VisualText(board).Contains("还没有 Apocalypse") && count.Text=="0 个项目","missing briefs show an empty state");
@@ -204,10 +216,18 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Click(w,"SummarySource"); Pump(450);
         Check((bool)linearType.GetField("linearMode",flags).GetValue(integration)==false && Find(w,"LinearRefresh").Visibility==Visibility.Collapsed,"opening a brief page leaves the Linear view");
         Check(((TextBlock)Find(w,"AppTitle")).Text=="总结" && Find(w,"BriefSummaryRoot")!=null && Find(w,"BriefRefresh").Visibility==Visibility.Visible,"summary page shows the daily brief");
-        Check(VisualText(Find(w,"BriefSummaryRoot")).Contains("今日项目") && VisualText(Find(w,"BriefSummaryRoot")).Contains("今日标题"),"summary page lists the project and headline");
+        Check(VisualText(Find(w,"BriefSummaryRoot")).Contains("今日项目") && VisualText(Find(w,"BriefSummaryRoot")).Contains("今日标题") && VisualText(Find(w,"BriefSummaryRoot")).Contains("完成事项一"),"summary page lists finished items and headline");
+        Check(!VisualText(Find(w,"BriefSummaryRoot")).Contains("今日遗留问题"),"summary page hides unfinished items");
+        var briefToggle=Find(w,"BriefToggle-summary-0") as Button; var briefBody=Find(w,"BriefBody-summary-0") as FrameworkElement;
+        Check(briefToggle!=null && briefBody!=null && briefBody.Visibility==Visibility.Visible,"summary items start expanded");
+        briefToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
+        Check(briefBody.Visibility==Visibility.Collapsed,"clicking a project collapses its items");
+        briefToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
+        Check(briefBody.Visibility==Visibility.Visible,"clicking a project expands its items again");
         Capture(w,"brief-summary");
         Click(w,"IssuesSource"); Pump(450);
-        Check(((TextBlock)Find(w,"AppTitle")).Text=="潜在问题" && Find(w,"BriefIssuesRoot")!=null && VisualText(Find(w,"BriefIssuesRoot")).Contains("今日遗留问题"),"issues page shows leftovers");
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="潜在问题" && Find(w,"BriefIssuesRoot")!=null && VisualText(Find(w,"BriefIssuesRoot")).Contains("今日遗留问题") && VisualText(Find(w,"BriefIssuesRoot")).Contains("需要你做：") && VisualText(Find(w,"BriefIssuesRoot")).Contains("请在终端重连后告知"),"issues page shows unfinished items and user actions");
+        Check(!VisualText(Find(w,"BriefIssuesRoot")).Contains("完成事项一"),"issues page hides finished items");
         Capture(w,"brief-issues");
         Click(w,"NotesSource"); Pump(450);
         Check(((TextBlock)Find(w,"AppTitle")).Text=="便签" && Find(w,"BriefRefresh").Visibility==Visibility.Collapsed && Find(w,"Add-product")!=null,"notes button returns from the brief pages");
