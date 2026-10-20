@@ -40,8 +40,9 @@ A small Windows notes app with customizable local sections, a lightweight read-o
 
 本机的 Apocalypse 会把每天与 AI 的工作整理成一份总结。便签直接读取这份结果，多出两个页面：
 
-- **总结**：按今日、昨日分别列出每个项目的需求与进展，并给出当天的整体概括。
-- **潜在问题**：列出这两份总结里还没做完的事，以及 agent 自己报告的问题。
+- **总结**：按今日、昨日分别列出每个项目已完成的事项，并给出当天的整体概括。
+- **潜在问题**：列出还没做完的事项，以及需要你本人处理的动作；agent 自己发现的技术问题不列出。
+- 每个项目下的多个事项逐行显示，点击项目名可以收起或展开。
 
 数据来自 `%USERPROFILE%\.claude\apocalypse\briefs\`：今日读 `<今天>.today.json`，昨日读 `<昨天>.json`。这两个文件由 Apocalypse 生成，便签只读不改。
 

@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows;
@@ -16,17 +17,10 @@ using System.Windows.Media;
 namespace DesktopNotes {
     public sealed class ApocalypseBriefProject {
         public string Project { get; set; }
-        public string Need { get; set; }
-        public string Progress { get; set; }
-        public string Status { get; set; }
-        public ApocalypseBriefProject() { Project=""; Need=""; Progress=""; Status=""; }
-    }
-
-    public sealed class ApocalypseBriefLeftover {
-        public string Project { get; set; }
-        public string Item { get; set; }
-        public string Why { get; set; }
-        public ApocalypseBriefLeftover() { Project=""; Item=""; Why=""; }
+        public List<string> Done { get; set; }
+        public List<string> Pending { get; set; }
+        public string UserAction { get; set; }
+        public ApocalypseBriefProject() { Project=""; Done=new List<string>(); Pending=new List<string>(); UserAction=""; }
     }
 
     public sealed class ApocalypseBrief {
@@ -36,8 +30,7 @@ namespace DesktopNotes {
         public string Notes { get; set; }
         public int Episodes { get; set; }
         public List<ApocalypseBriefProject> Projects { get; set; }
-        public List<ApocalypseBriefLeftover> Leftovers { get; set; }
-        public ApocalypseBrief() { Date=""; GeneratedAt=""; Headline=""; Notes=""; Projects=new List<ApocalypseBriefProject>(); Leftovers=new List<ApocalypseBriefLeftover>(); }
+        public ApocalypseBrief() { Date=""; GeneratedAt=""; Headline=""; Notes=""; Projects=new List<ApocalypseBriefProject>(); }
         public DateTimeOffset? Generated {
             get {
                 DateTimeOffset value;
@@ -60,8 +53,16 @@ namespace DesktopNotes {
             if(root==null) throw new InvalidDataException("每日总结的内容无法识别。");
             var brief=new ApocalypseBrief { Date=Text(root,"date"), GeneratedAt=Text(root,"generated_at"), Headline=Text(root,"headline"), Notes=Text(root,"notes") };
             brief.Episodes=Int(Dict(root,"evidence"),"episodes");
-            foreach(var row in Rows(root,"projects")) brief.Projects.Add(new ApocalypseBriefProject { Project=Text(row,"project"), Need=Text(row,"need"), Progress=Text(row,"progress"), Status=Text(row,"status") });
-            foreach(var row in Rows(root,"leftovers")) brief.Leftovers.Add(new ApocalypseBriefLeftover { Project=Text(row,"project"), Item=Text(row,"item"), Why=Text(row,"why") });
+            foreach(var row in Rows(root,"projects")) {
+                var project=new ApocalypseBriefProject { Project=Text(row,"project"), UserAction=Text(row,"user_action") };
+                project.Done=Items(row,"done"); project.Pending=Items(row,"pending");
+                // 旧格式只有一个 progress 字段，按 status 归到已完成或未完成。
+                if(project.Done.Count==0 && project.Pending.Count==0) {
+                    List<string> legacy=SplitLines(Text(row,"progress"));
+                    if(legacy.Count>0) { if(Text(row,"status").Trim().ToLowerInvariant()=="done") project.Done=legacy; else project.Pending=legacy; }
+                }
+                brief.Projects.Add(project);
+            }
             return brief;
         }
         static Dictionary<string,object> Dict(Dictionary<string,object> source,string key) { object value; if(source==null || !source.TryGetValue(key,out value)) return null; return value as Dictionary<string,object>; }
@@ -71,6 +72,20 @@ namespace DesktopNotes {
             var result=new List<Dictionary<string,object>>(); object raw; if(source==null || !source.TryGetValue(key,out raw)) return result;
             object[] items=raw as object[]; if(items==null) return result;
             foreach(object item in items) { var row=item as Dictionary<string,object>; if(row!=null) result.Add(row); }
+            return result;
+        }
+        static List<string> Items(Dictionary<string,object> source,string key) {
+            var result=new List<string>(); object raw; if(source==null || !source.TryGetValue(key,out raw)) return result;
+            object[] items=raw as object[]; if(items==null) return result;
+            foreach(object item in items) { string text=Convert.ToString(item,CultureInfo.InvariantCulture); if(!string.IsNullOrWhiteSpace(text)) result.Add(text.Trim()); }
+            return result;
+        }
+        static List<string> SplitLines(string text) {
+            var result=new List<string>();
+            foreach(string part in Regex.Split(text??"","(?<=[。！？!?；;])\\s*")) {
+                string item=part.Trim().TrimEnd('；',';').Trim();
+                if(item.Length>0) result.Add(item);
+            }
             return result;
         }
     }
@@ -104,23 +119,41 @@ namespace DesktopNotes {
         public static void RenderSummary(StackPanel board,TextBlock status,TextBlock count,ApocalypseBriefStore store) { Render(board,status,count,store,"BriefSummaryRoot","总结",false); }
         public static void RenderIssues(StackPanel board,TextBlock status,TextBlock count,ApocalypseBriefStore store) { Render(board,status,count,store,"BriefIssuesRoot","潜在问题",true); }
 
-        static void Render(StackPanel board,TextBlock status,TextBlock count,ApocalypseBriefStore store,string rootId,string title,bool leftoversOnly) {
+        sealed class Card {
+            public string Project;
+            public List<string> Items;
+            public string Action;
+            public Card(string project,List<string> items,string action) { Project=project; Items=items; Action=action??""; }
+            public int RowCount { get { return Items.Count+(Action.Length>0?1:0); } }
+        }
+
+        static void Render(StackPanel board,TextBlock status,TextBlock count,ApocalypseBriefStore store,string rootId,string title,bool issues) {
             board.Children.Clear();
             var root=new StackPanel(); AutomationProperties.SetAutomationId(root,rootId); board.Children.Add(root);
-            var days=store.Days(); int total=0;
+            var days=store.Days(); int total=0,shown=0; string page=issues?"issues":"summary";
             if(days.Count==0) root.Children.Add(Empty("还没有 Apocalypse 的每日总结。在 Apocalypse 生成后点刷新。"));
             Brush muted=board.TryFindResource("MutedBrush") as Brush;
             foreach(ApocalypseBriefDay day in days) {
-                int rows=leftoversOnly?day.Brief.Leftovers.Count:day.Brief.Projects.Count;
+                List<Card> cards=Cards(day.Brief,issues);
+                int rows=0; foreach(Card card in cards) rows+=issues?card.RowCount:1;
                 root.Children.Add(DayHeader(day,rows));
-                if(rows==0) root.Children.Add(Empty(leftoversOnly?"这一天没有看出还没做完的事。":"这一天没有可用的工作记录。"));
-                else if(leftoversOnly) foreach(ApocalypseBriefLeftover item in day.Brief.Leftovers) root.Children.Add(LeftoverCard(item));
-                else foreach(ApocalypseBriefProject item in day.Brief.Projects) root.Children.Add(ProjectCard(item,muted));
-                if(!leftoversOnly && !string.IsNullOrWhiteSpace(day.Brief.Notes)) root.Children.Add(Hint(day.Brief.Notes));
+                if(cards.Count==0) root.Children.Add(Empty(issues?"这一天没有看出还没做完的事。":"这一天没有已完成的事项。"));
+                else foreach(Card card in cards) root.Children.Add(ProjectCard(page,shown++,card,muted));
+                if(!issues && !string.IsNullOrWhiteSpace(day.Brief.Notes)) root.Children.Add(Hint(day.Brief.Notes));
                 total+=rows;
             }
-            if(count!=null) count.Text=total+(leftoversOnly?" 条待解决":" 个项目");
+            if(count!=null) count.Text=total+(issues?" 条待解决":" 个项目");
             if(status!=null) status.Text=Status(store,title);
+        }
+
+        static List<Card> Cards(ApocalypseBrief brief,bool issues) {
+            var cards=new List<Card>();
+            foreach(ApocalypseBriefProject project in brief.Projects) {
+                var items=issues?project.Pending:project.Done;
+                string action=issues?project.UserAction:"";
+                if(items.Count>0 || !string.IsNullOrWhiteSpace(action)) cards.Add(new Card(project.Project,items,action));
+            }
+            return cards;
         }
 
         static FrameworkElement DayHeader(ApocalypseBriefDay day,int rows) {
@@ -139,34 +172,43 @@ namespace DesktopNotes {
             return panel;
         }
 
-        static FrameworkElement ProjectCard(ApocalypseBriefProject item,Brush muted) {
+        static FrameworkElement ProjectCard(string page,int index,Card item,Brush muted) {
             var card=new Border { CornerRadius=new CornerRadius(8), Padding=new Thickness(15,13,12,12), Margin=new Thickness(0,0,0,8) }; card.SetResourceReference(Border.BackgroundProperty,"SurfaceBrush");
             var stack=new StackPanel(); card.Child=stack;
             var head=new Grid(); head.ColumnDefinitions.Add(new ColumnDefinition()); head.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
-            head.Children.Add(Text(string.IsNullOrWhiteSpace(item.Project)?"未标明项目":item.Project,14,"TextBrush",true));
-            string state=StatusLabel(item.Status);
-            if(state.Length>0) { var badge=Text(state,10,"MutedBrush"); badge.VerticalAlignment=VerticalAlignment.Center; badge.Margin=new Thickness(8,1,0,0); Grid.SetColumn(badge,1); head.Children.Add(badge); }
-            stack.Children.Add(head);
-            if(!string.IsNullOrWhiteSpace(item.Need)) stack.Children.Add(Labeled(muted,"需求",item.Need,new Thickness(0,9,0,0)));
-            if(!string.IsNullOrWhiteSpace(item.Progress)) stack.Children.Add(Labeled(muted,"进展",item.Progress,new Thickness(0,6,0,0)));
+            string name=string.IsNullOrWhiteSpace(item.Project)?"未标明项目":item.Project;
+            var title=Text(name,14,"TextBrush",true); title.VerticalAlignment=VerticalAlignment.Center; head.Children.Add(title);
+            var glyph=Text("−",12,"MutedBrush"); glyph.VerticalAlignment=VerticalAlignment.Center; glyph.Margin=new Thickness(8,0,0,0); Grid.SetColumn(glyph,1); head.Children.Add(glyph);
+            var toggle=new Button { Content=head, Padding=new Thickness(0), HorizontalContentAlignment=HorizontalAlignment.Stretch };
+            AutomationProperties.SetAutomationId(toggle,"BriefToggle-"+page+"-"+index);
+            AutomationProperties.SetName(toggle,name+" · 点击收起或展开");
+            stack.Children.Add(toggle);
+            var body=new StackPanel { Margin=new Thickness(0,7,0,0) };
+            AutomationProperties.SetAutomationId(body,"BriefBody-"+page+"-"+index);
+            foreach(string line in item.Items) body.Children.Add(Bullet(line,false,muted));
+            if(item.Action.Length>0) body.Children.Add(Bullet(item.Action,true,muted));
+            stack.Children.Add(body);
+            toggle.Click+=(s,e)=> {
+                bool show=body.Visibility!=Visibility.Visible;
+                body.Visibility=show?Visibility.Visible:Visibility.Collapsed;
+                glyph.Text=show?"−":"+";
+            };
             return card;
         }
 
-        static FrameworkElement LeftoverCard(ApocalypseBriefLeftover item) {
-            var card=new Border { CornerRadius=new CornerRadius(8), Padding=new Thickness(15,12,12,12), Margin=new Thickness(0,0,0,8) }; card.SetResourceReference(Border.BackgroundProperty,"SurfaceBrush");
-            var stack=new StackPanel(); card.Child=stack;
-            bool named=!string.IsNullOrWhiteSpace(item.Project);
-            if(named) stack.Children.Add(Text(item.Project,12,"MutedBrush",true));
-            stack.Children.Add(Text(string.IsNullOrWhiteSpace(item.Item)?"（未说明）":item.Item,13,"TextBrush",false,new Thickness(0,named?5:0,0,0)));
-            if(!string.IsNullOrWhiteSpace(item.Why)) { var why=Text(item.Why,10.5,"MutedBrush",false,new Thickness(0,7,0,0)); why.ToolTip=item.Why; stack.Children.Add(why); }
-            return card;
-        }
-
-        static TextBlock Labeled(Brush muted,string label,string value,Thickness margin) {
-            var text=new TextBlock { FontFamily=new FontFamily("Microsoft YaHei UI"), FontSize=12, TextWrapping=TextWrapping.Wrap, LineHeight=20, Margin=margin };
-            text.SetResourceReference(TextBlock.ForegroundProperty,"BodyBrush");
-            var lead=new Run(label+"  "); if(muted!=null) lead.Foreground=muted;
-            text.Inlines.Add(lead); text.Inlines.Add(new Run(value)); return text;
+        static FrameworkElement Bullet(string value,bool action,Brush muted) {
+            var row=new Grid { Margin=new Thickness(2,7,0,0) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            var dot=new System.Windows.Shapes.Ellipse { Width=4, Height=4, VerticalAlignment=VerticalAlignment.Top, Margin=new Thickness(1,8,9,0) };
+            dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty,"MutedBrush");
+            row.Children.Add(dot);
+            var text=new TextBlock { FontFamily=new FontFamily("Microsoft YaHei UI"), FontSize=12, TextWrapping=TextWrapping.Wrap, LineHeight=19 };
+            text.SetResourceReference(TextBlock.ForegroundProperty,action?"TextBrush":"BodyBrush");
+            if(action) { var lead=new Run("需要你做："); if(muted!=null) lead.Foreground=muted; text.Inlines.Add(lead); }
+            text.Inlines.Add(new Run(value??""));
+            Grid.SetColumn(text,1); row.Children.Add(text);
+            return row;
         }
 
         static string Status(ApocalypseBriefStore store,string title) {
@@ -175,16 +217,6 @@ namespace DesktopNotes {
             if(store.Yesterday!=null && store.Yesterday.Generated!=null) stamps.Add("昨日 "+store.Yesterday.Generated.Value.ToLocalTime().ToString("MM.dd HH:mm"));
             if(stamps.Count==0) return title+" · 还没有 Apocalypse 记录";
             return title+" · "+string.Join(" · ",stamps.ToArray())+" 生成";
-        }
-
-        static string StatusLabel(string status) {
-            switch((status??"").Trim().ToLowerInvariant()) {
-                case "done": return "已完成";
-                case "partial": return "部分完成";
-                case "blocked": return "受阻";
-                case "unknown": return "未确认";
-                default: return (status??"").Trim();
-            }
         }
 
         static FrameworkElement Empty(string message) { return Text(message,11,"MutedBrush",false,new Thickness(0,4,0,12)); }
