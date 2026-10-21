@@ -240,6 +240,28 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
             Capture(w,"brief-regenerated");
         }
         Click(w,"NotesSource"); Pump(450);
+        long orcaNow=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        string switched=null;
+        OrcaCli.TestCommand=arguments=> {
+            if(arguments.StartsWith("terminal switch",StringComparison.Ordinal)) { switched=arguments; return "{\"ok\":true}"; }
+            return arguments.IndexOf("terminal",StringComparison.Ordinal)>=0?OrcaTerminals:OrcaWorktrees(orcaNow);
+        };
+        OrcaIntegration.Attach(w,store); Pump(350);
+        Check(Find(w,"AgentsSource")!=null && Find(w,"AgentsRefresh")!=null,"the working page appears in the toolbar");
+        Click(w,"AgentsSource"); Pump(500);
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="工作中" && Find(w,"OrcaRoot")!=null,"the working page lists Orca agents");
+        string orcaText=VisualText(Find(w,"OrcaRoot"));
+        Check(orcaText.Contains("阅读 desktop-notes 项目结构与 UI") && orcaText.Contains("你 ") && orcaText.Contains("阅读 desktop-notes 项目结构") && orcaText.Contains("aox-13-daily-brief") && orcaText.Contains("WRFGCv3 improve"),"cards show the conversation title message and worktree");
+        Check(orcaText.Contains("确认速率模型效果更好 | chem") && orcaText.Contains("chem_nne_project") && orcaText.Contains("已确认两组训练仍在运行") && orcaText.Contains("已完成 · 4 分钟"),"a finished session stays until it is opened");
+        Check(((TextBlock)typeof(NotesWindow).GetField("count",flags).GetValue(w)).Text=="2 个工作中 · 1 个待查看","the footer counts working and unopened agents");
+        Capture(w,"agents");
+        Click(w,"OrcaCard-1"); Pump(500);
+        Check(switched!=null && switched.Contains("term_b"),"clicking a session switches Orca to its terminal");
+        Check(!VisualText(Find(w,"OrcaRoot")).Contains("chem_nne_project") && ((TextBlock)typeof(NotesWindow).GetField("count",flags).GetValue(w)).Text=="2 个智能体","an opened finished session leaves the page");
+        Click(w,"AgentsRefresh"); Pump(400);
+        Check(Find(w,"OrcaRoot")!=null && !VisualText(Find(w,"OrcaRoot")).Contains("chem_nne_project"),"an opened session stays hidden after refresh");
+        Click(w,"NotesSource"); Pump(450);
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="便签" && Find(w,"AgentsRefresh").Visibility==Visibility.Collapsed,"notes returns from the working page");
         linearType.GetField("linearMode",flags).SetValue(integration,false); linearType.GetMethod("SetModeButtons",flags).Invoke(integration,null); w.RenderBoard();
         foreach(string section in new[]{"product","custom","personal"}) Check(Find(w,"Add-"+section)!=null,"add control for "+section);
         Click(w,"Add-product"); Input(w,"TitleInput","示例 · 标品项目"); Input(w,"ContentInput","现状：核心流程已完成。\n下一步：核对范围与验收清单。\n待确认：发布安排。"); Pump(750);
@@ -275,6 +297,52 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Check(next.Width==470 && next.Height==760 && next.Left==110 && next.Top==80 && next.Topmost,"window size position and pin survive restart");
         Check(reopened.Data.Notes.Count==4 && reopened.Data.Theme.Name=="自定义" && reopened.Data.Notes[0].CreatedUtc==original,"notes palette and timestamps survive restart"); Check(reopened.Section("product").Name=="工作" && reopened.Data.Sections[1].Id==addedId,"section names colors and order survive restart"); next.Left=-10000; next.Top=-10000; next.Show(); Pump(); next.Close();
     }
+    static string OrcaWorktrees(long now,string stateA="working",string stateC="working") {
+        return "{\"ok\":true,\"result\":{\"worktrees\":["
+            +"{\"id\":\"repo::a\",\"repo\":\"desktop-notes\",\"displayName\":\"aox-13-daily-brief\",\"unread\":true,\"agents\":[{\"paneKey\":\"tab1:leaf1\",\"state\":\""+stateA+"\",\"agentType\":\"claude\",\"prompt\":\"阅读 desktop-notes 项目结构\",\"lastAssistantMessage\":null,\"updatedAt\":"+now+",\"stateStartedAt\":"+(now-60000)+"}]},"
+            +"{\"id\":\"repo::b\",\"repo\":\"chem\",\"displayName\":\"chem_nne_project\",\"unread\":false,\"agents\":[{\"paneKey\":\"tab2:leaf2\",\"state\":\"done\",\"agentType\":\"codex\",\"prompt\":\"确认速率\",\"lastAssistantMessage\":\"已确认两组训练仍在运行\",\"updatedAt\":"+now+",\"stateStartedAt\":"+(now-240000)+"}]},"
+            +"{\"id\":\"repo::c\",\"repo\":\"WRFGCv3 improve\",\"displayName\":\"WRFGCv3 improve\",\"unread\":false,\"agents\":[{\"paneKey\":\"tab3:leaf3\",\"state\":\""+stateC+"\",\"agentType\":\"codex\",\"prompt\":\"恢复了，试试\",\"lastAssistantMessage\":null,\"updatedAt\":"+now+",\"stateStartedAt\":"+(now-3600000)+"}]}"
+            +"]}}";
+    }
+    const string OrcaTerminals="{\"ok\":true,\"result\":{\"terminals\":[{\"handle\":\"term_a\",\"tabId\":\"tab1\",\"leafId\":\"leaf1\",\"worktreeId\":\"repo::a\",\"title\":\"阅读 desktop-notes 项目结构与 UI\",\"agentIdentity\":\"claude\"},{\"handle\":\"term_b\",\"tabId\":\"tab2\",\"leafId\":\"leaf2\",\"worktreeId\":\"repo::b\",\"title\":\"确认速率模型效果更好 | chem\",\"agentIdentity\":\"codex\"},{\"handle\":\"term_9\",\"tabId\":\"tab9\",\"leafId\":\"leaf9\",\"worktreeId\":\"repo::c\",\"title\":\"别的标签页\",\"agentIdentity\":\"codex\"}]}}";
+    static void OrcaDataTests() {
+        long now=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var snapshot=OrcaSnapshot.Parse(OrcaWorktrees(now),OrcaTerminals);
+        Check(snapshot.Agents.Count==3,"Orca worktree ps lists every agent");
+        var seen=new OrcaSeenStore(Path.Combine(folder,"orca-seen","notes.json"));
+        var visible=snapshot.Visible(seen);
+        Check(visible.Count==3 && visible[0].PaneKey=="tab1:leaf1" && visible[1].PaneKey=="tab2:leaf2" && visible[2].PaneKey=="tab3:leaf3","working and unopened finished sessions are listed newest first");
+        Check(visible[0].Title=="阅读 desktop-notes 项目结构与 UI" && visible[0].TerminalHandle=="term_a","the terminal tab title and handle name the conversation");
+        Check(visible[2].Title=="WRFGCv3 improve" && visible[2].ConversationName==null && visible[2].TerminalHandle==null,"a missing terminal title falls back to the worktree name");
+        Check(visible[1].Title=="确认速率模型效果更好 | chem" && visible[1].TerminalHandle=="term_b" && visible[1].State=="done","a finished session keeps its terminal for opening");
+        Check(visible[0].Prompt=="阅读 desktop-notes 项目结构" && visible[0].Unread && visible[0].AgentName=="Claude","messages unread flag and agent name parse");
+        Check(OrcaSnapshot.Elapsed(now-30000,DateTimeOffset.FromUnixTimeMilliseconds(now))=="刚刚" && OrcaSnapshot.Elapsed(now-60000,DateTimeOffset.FromUnixTimeMilliseconds(now))=="1 分钟" && OrcaSnapshot.Elapsed(now-3600000,DateTimeOffset.FromUnixTimeMilliseconds(now))=="1 小时" && OrcaSnapshot.Elapsed(now-18*3600000,DateTimeOffset.FromUnixTimeMilliseconds(now))=="18 小时","elapsed time reads like the Orca card");
+
+        var watcher=new OrcaAgentWatcher();
+        Check(watcher.Observe(snapshot).Count==0,"the first poll only seeds the watcher");
+        var done=OrcaSnapshot.Parse(OrcaWorktrees(now,"done"),OrcaTerminals);
+        var finished=watcher.Observe(done);
+        Check(finished.Count==1 && finished[0].PaneKey=="tab1:leaf1","an agent leaving working shakes once");
+        Check(watcher.Observe(done).Count==0,"a completed agent does not shake again");
+        var waiting=OrcaSnapshot.Parse(OrcaWorktrees(now,"done","waiting"),OrcaTerminals);
+        finished=watcher.Observe(waiting);
+        Check(finished.Count==1 && finished[0].PaneKey=="tab3:leaf3","waiting for the user also counts as finished");
+
+        var board=new StackPanel(); var status=new TextBlock(); var count=new TextBlock();
+        OrcaBoardView.Render(board,status,count,snapshot,null,seen,null);
+        string text=VisualText(board);
+        Check(text.Contains("阅读 desktop-notes 项目结构与 UI") && text.Contains("阅读 desktop-notes 项目结构") && text.Contains("你 ") && text.Contains("WRFGCv3 improve") && text.Contains("1 小时"),"the board renders title messages worktree and elapsed time");
+        Check(text.Contains("确认速率模型效果更好 | chem") && text.Contains("chem_nne_project") && text.Contains("已确认两组训练仍在运行") && text.Contains("已完成 · 4 分钟"),"a finished session stays until it is opened");
+        Check(count.Text=="2 个工作中 · 1 个待查看","the footer counts working and unopened agents");
+        var chem=visible[1];
+        seen.MarkSeen(chem);
+        var reloaded=new OrcaSeenStore(Path.Combine(folder,"orca-seen","notes.json"));
+        Check(!reloaded.Unseen(chem),"opening a finished session is remembered on disk");
+        OrcaBoardView.Render(board,status,count,snapshot,null,reloaded,null);
+        Check(!VisualText(board).Contains("chem_nne_project") && count.Text=="2 个智能体","an opened finished session leaves the board");
+        chem.StateStartedAt+=60000;
+        Check(reloaded.Unseen(chem),"a new turn on the same session shows again");
+    }
     static bool MenuHasItem(IntPtr menu,int id) {
         int count=GetMenuItemCount(menu);
         for(int i=0;i<count;i++) if(GetMenuItemID(menu,i)==id) return true;
@@ -301,7 +369,7 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
     }
     [STAThread] public static int Main(string[] args) {
         folder=Path.GetFullPath(args[0]); Directory.CreateDirectory(folder); var app=new Application { ShutdownMode=ShutdownMode.OnExplicitShutdown };
-        try { LinearBoardTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
+        try { LinearBoardTests(); OrcaDataTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
         catch(Exception e) { checks.Add("FAIL "+e); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 1; }
     }
 }

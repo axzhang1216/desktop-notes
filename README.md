@@ -1,8 +1,8 @@
 # 桌面便签 · Desktop Notes
 
-一个极简的 Windows 桌面便签工具。保留原来的本地便签，同时可以连接 Linear 查看未完成的待办，并读取 Apocalypse 的每日总结与潜在问题——必要时便签自己让 Apocalypse 重新生成。
+一个极简的 Windows 桌面便签工具。保留原来的本地便签，同时可以连接 Linear 查看未完成的待办，读取 Apocalypse 的每日总结与潜在问题——必要时便签自己让 Apocalypse 重新生成；还可以通过 Orca 命令行查看正在工作的智能体。
 
-A small Windows notes app with customizable local sections, a lightweight read-only Linear todo view, and the daily work brief from Apocalypse — which the app can ask Apocalypse to regenerate. Built with C# and WPF. The interface is currently in Simplified Chinese.
+A small Windows notes app with customizable local sections, a lightweight read-only Linear todo view, the daily work brief from Apocalypse — which the app can ask Apocalypse to regenerate — and a read-only view of the agents Orca is working on. Built with C# and WPF. The interface is currently in Simplified Chinese.
 
 ![便签与分区管理示例](docs/preview.png)
 
@@ -15,7 +15,7 @@ A small Windows notes app with customizable local sections, a lightweight read-o
 - 点击分区右侧的 **＋**，输入标题与多行内容。暂停输入约半秒后自动保存。
 - 点击标题或编辑图标继续修改，长内容可展开、收起。
 - 创建时间会持续保留；修改内容时另记更新时间。悬停时间或进入编辑界面查看完整记录。
-- 顶部四个图标在本地便签、Linear 待办、每日总结和潜在问题之间切换。切换时内容区做一次卡片翻转，左上角标题跟随当前页面。
+- 顶部图标在本地便签、Linear 待办、每日总结、潜在问题和工作中之间切换。切换时内容区做一次卡片翻转，左上角标题跟随当前页面。
 - 拖动顶部移动窗口，拖动边缘缩放，图钉按钮控制置顶。
 - 窗口位置、大小和置顶状态会在下次启动时恢复。再次运行程序会唤回已有窗口。
 - 点击 **×** 或按 `Alt+F4` 关闭时，便签最小化到任务栏而不是退出；在任务栏右键图标选择「退出」，或在最小化状态再次选择「关闭」，即可真正关闭程序。
@@ -63,6 +63,19 @@ A small Windows notes app with customizable local sections, a lightweight read-o
 ```
 
 第一次使用时会自动在 Claude Code 记下的仓库位置里找这个脚本，并挑一个带时区数据的 Python 解释器，找到后就写进这个文件。位置不对时可以直接改；解释器路径带空格时用引号包起来，例如 `"python": "\"C:\\Program Files\\Python311\\python.exe\""`。
+
+## 工作中的智能体
+
+便签通过 Orca 的命令行读取正在运行的智能体，多出第 5 个页面「工作中」，显示内容与 Orca 的智能体看板一致：
+
+- 工作中的智能体一直显示；已经跑完、但还没在这页点开过的会话也会保留，标着「已完成」「等待你」或「需要你」。
+- 点一下卡片，Orca 会切到这个会话所在的终端，这一条随后从列表消失。看过哪些会话记在 `%LOCALAPPDATA%\ZoeyDesktopNotes\orca-seen.json`；同一个会话跑了新的一轮，会重新出现。
+- 每张卡片显示会话标题、最近一条你的消息和智能体回复、工作区名称，以及这一轮已经运行（或完成）的时间。
+- 页面打开时读取一次，之后每 15 秒自动刷新；右上角的刷新按钮可以立即重新读取。
+- 某个智能体从「工作中」变为完成、等待或阻塞时，便签窗口会左右震动提醒。窗口最小化到任务栏时会先恢复再震动。
+- 只读，不会修改 Orca 里任何状态。
+
+便签会自动在 `%LOCALAPPDATA%\Programs\orca\resources\bin\orca.exe` 或 `PATH` 中寻找 Orca 命令行。找不到或 Orca 没有运行时，页面会显示提示，其他页面不受影响。
 
 ## 自定义分区
 
