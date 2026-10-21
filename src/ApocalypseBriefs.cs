@@ -390,7 +390,17 @@ namespace DesktopNotes {
             root=Private<Grid>(notesWindow,"root"); board=Private<StackPanel>(notesWindow,"board"); status=Private<TextBlock>(notesWindow,"status"); count=Private<TextBlock>(notesWindow,"count");
         }
 
-        public static void Attach(NotesWindow window,ApocalypseBriefStore briefs,ApocalypseBriefRunner runner) { new ApocalypseIntegration(window,briefs,runner).Install(); }
+        public static ApocalypseIntegration Current { get; private set; }
+
+        public static void Attach(NotesWindow window,ApocalypseBriefStore briefs,ApocalypseBriefRunner runner) {
+            var integration=new ApocalypseIntegration(window,briefs,runner); Current=integration; integration.Install();
+        }
+
+        // 其他页面接管内容区时调用，避免每日总结的刷新按钮还留在工具栏。
+        public void Leave() {
+            if(page==null) return;
+            LeavePage();
+        }
 
         static T Private<T>(object owner,string name) where T:class {
             FieldInfo field=owner.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic);
