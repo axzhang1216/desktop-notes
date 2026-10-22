@@ -339,7 +339,6 @@ namespace DesktopNotes {
         readonly TextBlock count;
         Button notesButton;
         Button sourceButton;
-        Button refreshButton;
         Grid setupOverlay;
         bool linearMode;
         bool loading;
@@ -367,10 +366,9 @@ namespace DesktopNotes {
             notesButton=IconToolbarButton(NoteIcon(),"便签","NotesSource");
             notesButton.Click+=(s,e)=> { if(linearMode) ShowLocal(); };
             sourceButton=IconToolbarButton(LinearIcon(),"Linear","LinearSource");
-            sourceButton.Click+=async (s,e)=> { if(!linearMode) await ShowLinearAsync(false); };
-            refreshButton=ToolbarButton("\uE72C","刷新 Linear","LinearRefresh"); refreshButton.Visibility=Visibility.Collapsed; refreshButton.Click+=async (s,e)=>await ShowLinearAsync(true);
+            sourceButton.Click+=async (s,e)=> { await ShowLinearAsync(); };
             int insert=Math.Min(1,tools.Children.Count);
-            tools.Children.Insert(insert,notesButton); tools.Children.Insert(insert+1,sourceButton); tools.Children.Insert(insert+2,refreshButton);
+            tools.Children.Insert(insert,notesButton); tools.Children.Insert(insert+1,sourceButton);
             SetModeButtons();
         }
         static System.Windows.Shapes.Path StrokeIcon(string geometry) {
@@ -392,10 +390,6 @@ namespace DesktopNotes {
             AutomationProperties.SetAutomationId(button,id); AutomationProperties.SetName(button,label); return button;
         }
 
-        Button ToolbarButton(string glyph,string label,string id) {
-            var button=new Button { Width=32,Height=32,Padding=new Thickness(5),ToolTip=label,Content=new TextBlock { Text=glyph,FontFamily=new FontFamily("Segoe MDL2 Assets"),FontSize=14,VerticalAlignment=VerticalAlignment.Center } };
-            AutomationProperties.SetAutomationId(button,id); AutomationProperties.SetName(button,label); return button;
-        }
 
         static StackPanel FindToolbar(DependencyObject node) {
             if(node==null) return null;
@@ -411,12 +405,11 @@ namespace DesktopNotes {
             return null;
         }
 
-        async Task ShowLinearAsync(bool refresh) {
+        async Task ShowLinearAsync() {
             if(loading) return;
             string key=null;
             try { key=connectionStore.ReadKey(); } catch(Exception e) { ShowError("读取 Linear 连接信息失败。",e); return; }
             if(string.IsNullOrWhiteSpace(key)) { ShowSetup(); return; }
-            if(!refresh && lastSnapshot!=null) { linearMode=true; RenderLinear(lastSnapshot); return; }
             loading=true; linearMode=true; SetModeButtons(); status.Text="正在读取待办…"; count.Text="";
             try {
                 var snapshot=await new LinearApiClient(key).LoadAsync(); lastSnapshot=snapshot; RenderLinear(snapshot); connectionStore.Save(key,snapshot.ViewerName);
@@ -435,7 +428,6 @@ namespace DesktopNotes {
             Highlight(sourceButton,linearMode);
             if(notesButton!=null) { notesButton.ToolTip="便签"; AutomationProperties.SetName(notesButton,"便签"); }
             if(sourceButton!=null) { sourceButton.ToolTip="Linear · 右键管理连接"; AutomationProperties.SetName(sourceButton,linearMode?"待办":"Linear"); }
-            if(refreshButton!=null) refreshButton.Visibility=linearMode?Visibility.Visible:Visibility.Collapsed;
             window.SetHeading(linearMode?"待办":"便签");
             window.PreserveStatusOnSave=linearMode;
         }

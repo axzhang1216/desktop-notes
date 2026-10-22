@@ -210,7 +210,7 @@ namespace DesktopNotes {
             ApplyTheme();
             SetResourceReference(BackgroundProperty,"CanvasBrush"); SetResourceReference(ForegroundProperty,"TextBrush");
             var frame=new Border { BorderThickness=new Thickness(1), Child=root }; frame.SetResourceReference(Border.BorderBrushProperty,"LineBrush"); Content=frame;
-            var main=new Grid(); main.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); main.RowDefinitions.Add(new RowDefinition()); main.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); root.Children.Add(main);
+            var main=new Grid(); main.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); main.RowDefinitions.Add(new RowDefinition()); main.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); main.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); root.Children.Add(main);
             var header=new Grid { Margin=new Thickness(22,17,14,18), Background=Brushes.Transparent }; header.ColumnDefinitions.Add(new ColumnDefinition()); header.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
             header.MouseLeftButtonDown+=(s,e)=> { if(e.ClickCount==2) return; if(e.OriginalSource is TextBlock || e.OriginalSource==header) { try { DragMove(); } catch(InvalidOperationException){} } };
             var heading=new StackPanel { Margin=new Thickness(0,0,8,0) }; headingTitle=Text("便签",24,"TextBrush",true); AutomationProperties.SetAutomationId(headingTitle,"AppTitle"); heading.Children.Add(headingTitle);
@@ -221,9 +221,10 @@ namespace DesktopNotes {
             tools.Children.Add(IconButton("\uE921","最小化","Minimize",()=>WindowState=WindowState.Minimized));
             tools.Children.Add(IconButton("\uE8BB","最小化到任务栏","Close",Close)); main.Children.Add(header);
             var scroll=new ScrollViewer { Content=board, VerticalScrollBarVisibility=ScrollBarVisibility.Auto, HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled, Padding=new Thickness(22,0,22,12), CanContentScroll=false }; Grid.SetRow(scroll,1); main.Children.Add(scroll);
+            ChatComposerHost=new Border { Visibility=Visibility.Collapsed }; Grid.SetRow(ChatComposerHost,2); main.Children.Add(ChatComposerHost);
             var footer=new Grid { Margin=new Thickness(22,11,22,13) }; footer.ColumnDefinitions.Add(new ColumnDefinition()); footer.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
             status.FontSize=10.5; status.SetResourceReference(TextBlock.ForegroundProperty,"MutedBrush"); status.Text="保存在此电脑"; status.TextTrimming=TextTrimming.CharacterEllipsis; status.ToolTip=store.FilePath;
-            count.FontSize=10.5; count.SetResourceReference(TextBlock.ForegroundProperty,"MutedBrush"); Grid.SetColumn(count,1); count.Margin=new Thickness(12,0,0,0); footer.Children.Add(status); footer.Children.Add(count); Grid.SetRow(footer,2); main.Children.Add(footer);
+            count.FontSize=10.5; count.SetResourceReference(TextBlock.ForegroundProperty,"MutedBrush"); Grid.SetColumn(count,1); count.Margin=new Thickness(12,0,0,0); footer.Children.Add(status); footer.Children.Add(count); Grid.SetRow(footer,3); main.Children.Add(footer);
             overlay.SetResourceReference(Panel.BackgroundProperty,"CanvasBrush"); overlay.Visibility=Visibility.Collapsed; root.Children.Add(overlay);
             editTimer.Tick+=(s,e)=> { editTimer.Stop(); if(!composing) FlushEditor(); };
             positionTimer.Tick+=(s,e)=> { positionTimer.Stop(); SavePlacement(); Persist(); };
@@ -300,12 +301,15 @@ namespace DesktopNotes {
         void SchedulePosition() { if(!loaded || WindowState!=WindowState.Normal) return; positionTimer.Stop(); positionTimer.Start(); }
         void SavePlacement() { if(WindowState!=WindowState.Normal) return; store.Data.Window=new Placement { Left=Left,Top=Top,Width=Width,Height=Height,Topmost=Topmost }; }
         public bool PreserveStatusOnSave { get; set; }
+        public Action HomeView { get; set; }
+        public Border ChatComposerHost { get; private set; }
         public void SetHeading(string text) { if(headingTitle!=null && text!=null) headingTitle.Text=text; }
         public bool Persist() {
             try { store.Save(); savingError=false; if(!PreserveStatusOnSave) status.Text="已保存到此电脑"; if(editorStatus!=null) editorStatus.Text="已自动保存 · "+DateTime.Now.ToString("HH:mm"); return true; }
             catch(Exception e) { status.Text="保存遇到问题，请导出备份"; if(editorStatus!=null) editorStatus.Text="保存遇到问题"; if(!savingError) MessageBox.Show(this,"便签仍保留在当前窗口。请通过「配色与备份」导出，再检查本地保存位置。\n\n"+e.Message,"保存遇到问题",MessageBoxButton.OK,MessageBoxImage.Error); savingError=true; return false; }
         }
         public void RenderBoard() {
+            if(HomeView!=null) { HomeView(); return; }
             board.Children.Clear();
             if(store.Data.Sections.Count==0) { var empty=ActionButton("＋ 新建第一个分区","FirstSection",OpenSections,true); empty.Margin=new Thickness(0,12,0,0); board.Children.Add(empty); }
             foreach(NoteSection definition in store.Data.Sections) {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -143,6 +144,24 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Check(!text.Contains("空项目") && !text.Contains("不应出现的描述") && !text.Contains("第一性原理") && !text.Contains("做完了") && !text.Contains("暂无 Linear 文档"),"project descriptions and finished issues are hidden");
         Check(count.Text=="1 个项目 · 2 条待办","count reports visible projects and open issues");
     }
+    static void MiniAgentDataTests() {
+        var config=MiniAgentConfig.Default();
+        Check(config.Provider=="minimax" && config.Model=="MiniMax-M3.1-Flash" && config.Folder=="MiniAgent","miniagent defaults use the local search model");
+        string file=MiniAgentStore.FileName(new DateTime(2026,10,22,15,30,0),"AOX-20: 记了什么？");
+        Check(file.EndsWith(".md") && file.IndexOf(':')<0 && file.StartsWith("2026-10-22 15-30-00 "),"chat file name is safe and dated");
+        var messages=new List<MiniAgentMessage> {
+            new MiniAgentMessage { User=true,Text="AOX-20 之前记了什么？" },
+            new MiniAgentMessage { Text="记在 `Notes/AOX.md:12`。另见 src/App.md:8。" }
+        };
+        string md=MiniAgentStore.Markdown("AOX-20 之前记了什么",DateTimeOffset.Parse("2026-10-22T15:30:00+08:00",CultureInfo.InvariantCulture),"session-1","deepseek-v4-flash",messages);
+        Check(md.Contains("title: \"AOX-20 之前记了什么\"") && md.Contains("## 你") && md.Contains("## 助手") && md.Contains("`Notes/AOX.md:12`"),"chat markdown keeps one record per conversation");
+        var paths=MiniAgentStore.Citations(messages[1].Text);
+        Check(paths.Count==2 && paths.Contains("Notes/AOX.md:12") && paths.Contains("src/App.md:8"),"citations come from quoted and bare note paths");
+        Check(MiniAgentStore.Citations("没有在笔记中找到依据").Count==0,"a not-found answer has no citations");
+        Check(MiniAgentRunner.Quote("a b\"c")=="\"a b\\\"c\"","arguments quote spaces and quotes");
+        string args=MiniAgentRunner.Arguments(config,"00000000-0000-0000-0000-000000000000","测试");
+        Check(args.Contains("--tools read,bash") && args.Contains("--provider minimax") && args.EndsWith("问题：测试"),"Pi runs with read and bash only");
+    }
     static void StoreTests() {
         var store=new NotesStore(Path.Combine(folder,"storage","notes.json")); store.Load();
         Check(store.Data.Notes.Count==0,"fresh state is empty");
@@ -203,7 +222,7 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         linearType.GetField("linearMode",flags).SetValue(integration,true); linearType.GetMethod("SetModeButtons",flags).Invoke(integration,null);
         LinearBoardView.Render(board,status,count,LinearApiClient.ParseResponse("{\"data\":{\"viewer\":{\"name\":\"Zoey\"},\"projects\":{\"nodes\":[{\"id\":\"p1\",\"name\":\"桌面便签\",\"url\":\"https://linear.app/p1\",\"color\":\"#5e6ad2\",\"status\":{\"name\":\"In Progress\"}},{\"id\":\"p2\",\"name\":\"空项目\",\"description\":\"不应出现\",\"status\":{\"name\":\"Planned\"}}]},\"issues\":{\"nodes\":[{\"id\":\"i1\",\"identifier\":\"AOX-7\",\"title\":\"Linear UI 改进\",\"url\":\"https://linear.app/i1\",\"updatedAt\":\"2026-10-18T01:00:00.000Z\",\"state\":{\"name\":\"Todo\",\"type\":\"unstarted\"},\"project\":{\"id\":\"p1\",\"name\":\"桌面便签\"}},{\"id\":\"i2\",\"identifier\":\"AOX-9\",\"title\":\"没有项目的事项\",\"url\":\"https://linear.app/i2\",\"updatedAt\":\"2026-10-17T01:00:00.000Z\",\"state\":{\"name\":\"Backlog\",\"type\":\"backlog\"}}]}}}"));
         Check(((TextBlock)Find(w,"AppTitle")).Text=="待办","Linear view title is 待办");
-        Check(Find(w,"LinearRefresh").Visibility==Visibility.Visible,"refresh appears in Linear view");
+        Check(Find(w,"LinearRefresh")==null && Find(w,"BriefRefresh")==null,"the page refresh buttons are gone");
         Capture(w,"linear-todo");
         string briefDirectory=Path.Combine(folder,"ui-runner","briefs"); Directory.CreateDirectory(briefDirectory);
         string briefDate=DateTime.Now.ToString("yyyy-MM-dd"),previousDate=DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd");
@@ -212,10 +231,10 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         string uiConfig=InstallStub(Path.Combine(folder,"ui-runner"));
         if(uiConfig==null) checks.Add("SKIP brief page generation needs a python with tzdata");
         ApocalypseIntegration.Attach(w,new ApocalypseBriefStore(briefDirectory),uiConfig==null?null:new ApocalypseBriefRunner(uiConfig)); Pump();
-        Check(Find(w,"SummarySource")!=null && Find(w,"IssuesSource")!=null && Find(w,"BriefRefresh")!=null,"brief pages appear in the toolbar");
+        Check(Find(w,"SummarySource")!=null && Find(w,"IssuesSource")!=null,"brief pages appear in the toolbar");
         Click(w,"SummarySource"); Pump(450);
-        Check((bool)linearType.GetField("linearMode",flags).GetValue(integration)==false && Find(w,"LinearRefresh").Visibility==Visibility.Collapsed,"opening a brief page leaves the Linear view");
-        Check(((TextBlock)Find(w,"AppTitle")).Text=="总结" && Find(w,"BriefSummaryRoot")!=null && Find(w,"BriefRefresh").Visibility==Visibility.Visible,"summary page shows the daily brief");
+        Check((bool)linearType.GetField("linearMode",flags).GetValue(integration)==false,"opening a brief page leaves the Linear view");
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="总结" && Find(w,"BriefSummaryRoot")!=null,"summary page shows the daily brief");
         Check(VisualText(Find(w,"BriefSummaryRoot")).Contains("今日项目") && VisualText(Find(w,"BriefSummaryRoot")).Contains("今日标题") && VisualText(Find(w,"BriefSummaryRoot")).Contains("完成事项一"),"summary page lists finished items and headline");
         Check(!VisualText(Find(w,"BriefSummaryRoot")).Contains("今日遗留问题"),"summary page hides unfinished items");
         var briefToggle=Find(w,"BriefToggle-summary-0") as Button; var briefBody=Find(w,"BriefBody-summary-0") as FrameworkElement;
@@ -230,7 +249,7 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Check(!VisualText(Find(w,"BriefIssuesRoot")).Contains("完成事项一"),"issues page hides finished items");
         Capture(w,"brief-issues");
         Click(w,"NotesSource"); Pump(450);
-        Check(((TextBlock)Find(w,"AppTitle")).Text=="便签" && Find(w,"BriefRefresh").Visibility==Visibility.Collapsed && Find(w,"Add-product")!=null,"notes button returns from the brief pages");
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="便签" && Find(w,"Add-product")!=null,"notes button returns from the brief pages");
         File.WriteAllText(Path.Combine(briefDirectory,briefDate+".today.json"),SampleBrief(briefDate,"今日标题","今日项目","今日遗留项目","今日遗留问题",previousDate+"T01:33:25Z"),new UTF8Encoding(false));
         Click(w,"SummarySource"); Pump(450);
         if(uiConfig!=null) {
@@ -348,6 +367,22 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         for(int i=0;i<count;i++) if(GetMenuItemID(menu,i)==id) return true;
         return false;
     }
+    static void MiniAgentUiTests() {
+        var store=new NotesStore(Path.Combine(folder,"miniagent-ui","notes.json")); store.Load();
+        var w=new NotesWindow(store) { ShowActivated=false,Left=-10000,Top=-10000 }; w.Show(); ShowWindow(new WindowInteropHelper(w).Handle,4); Pump();
+        LinearIntegration.Attach(w,store); ApocalypseIntegration.Attach(w,new ApocalypseBriefStore(Path.Combine(folder,"miniagent-ui","briefs")),null);
+        var config=MiniAgentConfig.Default(); config.Vault=Path.Combine(folder,"miniagent-vault"); Directory.CreateDirectory(config.Vault);
+        config.Folder="MiniAgent"; config.SessionDir=Path.Combine(folder,"miniagent-sessions"); config.NodePath=null; config.CliPath=null;
+        MiniAgentChat.Attach(w,store,config); Pump();
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="聊天","notes tab becomes the chat view");
+        Check(Find(w,"ChatInput")!=null && Find(w,"ChatSend")!=null && Find(w,"ChatEmpty")!=null,"chat shows a clean empty state and composer");
+        Check(((Button)Find(w,"NotesSource")).ToolTip as string=="聊天","the notes toolbar button is renamed to chat");
+        Click(w,"SummarySource"); Pump(450);
+        Check(w.ChatComposerHost.Visibility==Visibility.Collapsed,"leaving chat hides the composer");
+        Click(w,"NotesSource"); Pump(450);
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="聊天" && w.ChatComposerHost.Visibility==Visibility.Visible,"returning to chat restores the composer");
+        w.Close(); Pump(200); w.Close(); Pump(200);
+    }
     static void CloseToTaskbarTests() {
         var store=new NotesStore(Path.Combine(folder,"close","notes.json")); store.Load();
         var w=new NotesWindow(store) { ShowActivated=false,Left=-10000,Top=-10000 }; w.Show(); ShowWindow(new WindowInteropHelper(w).Handle,4); Pump();
@@ -369,7 +404,7 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
     }
     [STAThread] public static int Main(string[] args) {
         folder=Path.GetFullPath(args[0]); Directory.CreateDirectory(folder); var app=new Application { ShutdownMode=ShutdownMode.OnExplicitShutdown };
-        try { LinearBoardTests(); OrcaDataTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
+        try { LinearBoardTests(); OrcaDataTests(); MiniAgentDataTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); MiniAgentUiTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
         catch(Exception e) { checks.Add("FAIL "+e); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 1; }
     }
 }

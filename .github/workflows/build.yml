@@ -19,7 +19,7 @@ jobs:
       - name: Package Windows build
         shell: pwsh
         run: |
-          $version = '1.7.0'
+          $version = '1.8.0'
           $dist = Join-Path $PWD 'dist'
           $stage = Join-Path $dist 'package'
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -36,24 +36,24 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DesktopNotes-v1.7.0-Windows
+          name: DesktopNotes-v1.8.0-Windows
           path: |
-            dist/DesktopNotes-v1.7.0-Windows.zip
-            dist/DesktopNotes-v1.7.0-SHA256.txt
+            dist/DesktopNotes-v1.8.0-Windows.zip
+            dist/DesktopNotes-v1.8.0-SHA256.txt
           retention-days: 14
 
-      - name: Publish v1.7.0 release
+      - name: Publish v1.8.0 release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = 'v1.7.0'
+          $tag = 'v1.8.0'
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag `
-              .\dist\DesktopNotes-v1.7.0-Windows.zip `
-              .\dist\DesktopNotes-v1.7.0-SHA256.txt `
+              .\dist\DesktopNotes-v1.8.0-Windows.zip `
+              .\dist\DesktopNotes-v1.8.0-SHA256.txt `
               --repo $env:GITHUB_REPOSITORY `
               --clobber
             Write-Host "$tag assets refreshed."
@@ -61,21 +61,22 @@ jobs:
           }
 
           $notes = @"
-          桌面便签 v1.7.0 增加了从 Orca 读取的「工作中」页面，并在智能体跑完时震动提醒。
+          桌面便签 v1.8.0 的第一页换成「问笔记」：直接和你的 Obsidian 笔记对话，回答带文件路径和行号。
 
-          - 「工作中」只读读取 Orca 的智能体看板：会话标题、最近一条消息、工作区和进行时间。
-          - 跑完但还没点开过的会话会保留，标着已完成、等待你或需要你。
-          - 点一下卡片，Orca 会切到该会话所在的终端；看过哪些会话会记住。
-          - 智能体从工作中变为完成、等待或受阻时，便签窗口会左右震动提醒。
-          - 顶部日期改为不显示年份，完整日期放在悬停提示中，给新增的工具栏按钮留出位置。
+          - 首页由本地便签改为聊天界面：Enter 发送，Shift+Enter 换行，右上角可以开新对话。
+          - 回答只做检索：先在 Obsidian 库里用 rg/read 找依据，每条结论带「相对路径:行号」，找不到就直说没有找到。
+          - 每次对话保存为一个 markdown，放在 Obsidian 的 MiniAgent 文件夹里，带标题、时间、模型和完整问答。
+          - 后端用本机 Pi（minimax/MiniMax-M3.1-Flash），不建知识图谱也不做向量索引，笔记改了立刻生效。
+          - 每日总结与潜在问题不再依赖一直开着 Apocalypse：需要时便签自己补归档并重算，约 50 秒。
+          - 工具栏去掉 Linear 与总结页的刷新按钮，点开即刷新。
 
-          下载 DesktopNotes-v1.7.0-Windows.zip，解压后运行 DesktopNotes.exe。
+          下载 DesktopNotes-v1.8.0-Windows.zip，解压后运行 DesktopNotes.exe。
           "@
 
           gh release create $tag `
-            .\dist\DesktopNotes-v1.7.0-Windows.zip `
-            .\dist\DesktopNotes-v1.7.0-SHA256.txt `
+            .\dist\DesktopNotes-v1.8.0-Windows.zip `
+            .\dist\DesktopNotes-v1.8.0-SHA256.txt `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
-            --title 'v1.7.0 · 工作中的智能体' `
+            --title 'v1.8.0 · 问笔记' `
             --notes $notes

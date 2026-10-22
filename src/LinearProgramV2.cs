@@ -105,7 +105,7 @@ namespace DesktopNotes {
             bool first; using(var mutex=new Mutex(true,"Local\\ZoeyDesktopNotes-"+hash,out first)) {
                 if(!first) { var handle=FindWindow(null,"桌面便签"); if(handle!=IntPtr.Zero) { ShowWindow(handle,9); SetForegroundWindow(handle); } return; }
                 try {
-                    var store=new NotesStore(path); store.Load(); var app=new Application { ShutdownMode=ShutdownMode.OnMainWindowClose }; var window=new NotesWindow(store); LinearIntegration.Attach(window,store); LinearIntegrationPolish.Attach(window); ApocalypseIntegration.Attach(window,new ApocalypseBriefStore(),new ApocalypseBriefRunner(null)); OrcaIntegration.Attach(window,store); app.Run(window);
+                    var store=new NotesStore(path); store.Load(); var app=new Application { ShutdownMode=ShutdownMode.OnMainWindowClose }; var window=new NotesWindow(store); LinearIntegration.Attach(window,store); LinearIntegrationPolish.Attach(window); ApocalypseIntegration.Attach(window,new ApocalypseBriefStore(),new ApocalypseBriefRunner(null)); OrcaIntegration.Attach(window,store); MiniAgentChat.Attach(window,store); app.Run(window);
                 } catch(Exception e) { MessageBox.Show(e.Message,"桌面便签",MessageBoxButton.OK,MessageBoxImage.Error); }
                 finally { mutex.ReleaseMutex(); }
             }

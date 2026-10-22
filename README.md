@@ -1,10 +1,12 @@
 # 桌面便签 · Desktop Notes
 
-一个极简的 Windows 桌面便签工具。保留原来的本地便签，同时可以连接 Linear 查看未完成的待办，读取 Apocalypse 的每日总结与潜在问题——必要时便签自己让 Apocalypse 重新生成；还可以通过 Orca 命令行查看正在工作的智能体。
+一个极简的 Windows 桌面检索助手：第一页直接和你的 Obsidian 笔记对话，回答会带上文件路径与行号；同时保留本地便签数据、Linear 待办、Apocalypse 每日总结和 Orca 工作中的智能体。
 
-A small Windows notes app with customizable local sections, a lightweight read-only Linear todo view, the daily work brief from Apocalypse — which the app can ask Apocalypse to regenerate — and a read-only view of the agents Orca is working on. Built with C# and WPF. The interface is currently in Simplified Chinese.
+聊天只做检索，不建知识图谱、不做向量索引：每次提问由本机 Pi 在 Obsidian 库里用 `rg`/`read` 找依据，找不到会直接说没有找到。对话记录按“一次对话一个 md”保存在 Obsidian 的 `MiniAgent/` 文件夹。
 
-![便签与分区管理示例](docs/preview.png)
+A small Windows desktop assistant: ask your Obsidian notes directly on the first page and get answers with file paths and line numbers, alongside the preserved local notes data, a lightweight read-only Linear todo view, the daily work brief from Apocalypse, and a read-only view of the agents Orca is working on. Built with C# and WPF. The interface is currently in Simplified Chinese.
+
+![问笔记聊天界面示例](docs/preview.png)
 
 ## 下载与使用
 
@@ -12,14 +14,44 @@ A small Windows notes app with customizable local sections, a lightweight read-o
 
 运行环境：Windows 10 / 11，.NET Framework 4.8。程序以普通用户权限运行。
 
-- 点击分区右侧的 **＋**，输入标题与多行内容。暂停输入约半秒后自动保存。
-- 点击标题或编辑图标继续修改，长内容可展开、收起。
-- 创建时间会持续保留；修改内容时另记更新时间。悬停时间或进入编辑界面查看完整记录。
-- 顶部图标在本地便签、Linear 待办、每日总结、潜在问题和工作中之间切换。切换时内容区做一次卡片翻转，左上角标题跟随当前页面。
+- 在顶部「聊天」页输入问题，`Enter` 发送，`Shift+Enter` 换行。回答里的 `路径:行号` 对应 Obsidian 里的原文。
+- 每次对话自动保存到 Obsidian 的 `MiniAgent/` 文件夹，一次对话一个 md。
+- 顶部图标在聊天、Linear 待办、每日总结、潜在问题和工作中之间切换。切换时内容区做一次卡片翻转，左上角标题跟随当前页面。
+- 便签页已由聊天页取代；原有便签数据仍保存在 `notes.json`，设置里的分区管理、导出/导入备份继续可用。
 - 拖动顶部移动窗口，拖动边缘缩放，图钉按钮控制置顶。
 - 窗口位置、大小和置顶状态会在下次启动时恢复。再次运行程序会唤回已有窗口。
 - 点击 **×** 或按 `Alt+F4` 关闭时，便签最小化到任务栏而不是退出；在任务栏右键图标选择「退出」，或在最小化状态再次选择「关闭」，即可真正关闭程序。
 - `Ctrl+S` 立即保存，`Esc` 返回上一层。
+
+## 问笔记（MiniAgent）
+
+第一页是聊天界面，直接问 Obsidian 里的内容：
+
+- 只查本地笔记。回答前必须先用 `rg` 搜索、用 `read` 读取原文；每个事实性结论带 `相对路径:行号`，找不到就明确说没有找到，不凭模型记忆补全。
+- 不建知识图谱，也不做向量索引；直接搜当前 vault，笔记改了立刻生效。搜索会排除 `MiniAgent/` 对话记录目录。
+- 每次对话保存为一个 markdown 文件，放在 `<vault>/MiniAgent/`，包含 `title`、`created`、`updated`、`session`、`model` 和完整问答。首次发送时自动创建文件夹。
+- 需要本机 Pi 命令行，并已配置一个可用的 provider/model。默认使用 `minimax/MiniMax-M3.1-Flash`。
+
+配置文件在 `%LOCALAPPDATA%\ZoeyDesktopNotes\miniagent.json`，首次运行自动生成：
+
+```json
+{
+  "Vault": "E:\\BaiduSyncdisk\\Obsidian Notes",
+  "Folder": "MiniAgent",
+  "Provider": "minimax",
+  "Model": "MiniMax-M3.1-Flash",
+  "SessionDir": "C:\\Users\\<你>\\AppData\\Local\\ZoeyDesktopNotes\\miniagent-sessions",
+  "TimeoutSeconds": 300,
+  "NodePath": null,
+  "CliPath": null
+}
+```
+
+- `Vault`：Obsidian 库根目录。
+- `Folder`：对话记录子目录，也是搜索时排除的目录。
+- `Provider` / `Model`：传给 `pi --provider/--model`。
+- `NodePath` / `CliPath`：找不到 Pi 时手动指定 `node.exe` 和 `cli.js`。
+- 聊天界面本身不保存 API key；认证由 Pi 管理。修改配置后重启便签生效。
 
 ## Linear 待办
 
@@ -31,7 +63,7 @@ A small Windows notes app with customizable local sections, a lightweight read-o
 - 每个 Project 下列出未完成 Issue；没有 Project 的 Issue 也会列出。
 - 没有任何未完成 Issue 的 Project 不显示。
 - 卡片右侧的 `↗` 可以打开对应 Linear 页面。
-- 待办视图中的刷新按钮会重新读取 Issue。
+- 每次点开待办都会重新读取 Issue。
 - 右键 Linear 图标可以管理或断开 Linear 连接。
 
 更多连接说明见 [`docs/linear.md`](docs/linear.md)。
@@ -46,10 +78,10 @@ A small Windows notes app with customizable local sections, a lightweight read-o
 
 数据来自 `%USERPROFILE%\.claude\apocalypse\briefs\`：今日读 `<今天>.today.json`，昨日读 `<昨天>.json`。这两个文件由 Apocalypse 生成，便签只读不改。
 
-打开页面或点刷新时，只要今日总结超过一小时没更新、或者根本没有总结，便签就直接调用 Apocalypse 的生成脚本重算一份——Apocalypse 后台没启动也能用。页面先显示手上已有的内容，算完自动更新，一次大约一分钟。
+打开页面时，只要今日总结超过一小时没更新、或者根本没有总结，便签就直接调用 Apocalypse 的生成脚本重算一份——Apocalypse 后台没启动也能用。页面先显示手上已有的内容，算完自动更新，一次大约一分钟。
 
 - 每份总结右侧显示它的生成时间。
-- 刷新按钮重新读取文件，必要时重新生成；右键刷新按钮可以强制重新生成。
+- 每次点开总结或潜在问题都会重新读取文件，必要时自动重新生成。
 - 找不到生成脚本、或 Apocalypse 还没生成过时，页面会提示暂无记录。
 - 读取不到文件不会影响便签与待办，只是这两个页面为空。
 
@@ -61,6 +93,8 @@ A small Windows notes app with customizable local sections, a lightweight read-o
   "python": "python"
 }
 ```
+
+这两页不需要一直开着 Apocalypse 面板：需要重算时，便签直接跑本机的总结脚本，先跑一次聊天归档（Apocalypse 开着时它自带单实例锁，会自动跳过），再重算今日与昨日的总结，约 50 秒。分析模型在 `~/.claude/apocalypse/harness.json` 里配置，当前是 MiniMax M3.1 Flash。
 
 第一次使用时会自动在 Claude Code 记下的仓库位置里找这个脚本，并挑一个带时区数据的 Python 解释器，找到后就写进这个文件。位置不对时可以直接改；解释器路径带空格时用引号包起来，例如 `"python": "\"C:\\Program Files\\Python311\\python.exe\""`。
 
@@ -78,6 +112,8 @@ A small Windows notes app with customizable local sections, a lightweight read-o
 便签会自动在 `%LOCALAPPDATA%\Programs\orca\resources\bin\orca.exe` 或 `PATH` 中寻找 Orca 命令行。找不到或 Orca 没有运行时，页面会显示提示，其他页面不受影响。
 
 ## 自定义分区
+
+> 便签页已由聊天页取代；以下分区管理仍用于整理旧便签数据和导出备份。
 
 打开 **设置 → 管理分区**：
 
