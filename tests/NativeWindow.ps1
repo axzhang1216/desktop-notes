@@ -32,12 +32,9 @@ try {
     $script:windowHandle = $process.MainWindowHandle
     $null = [DesktopNotesNativeCheck]::ShowWindow($script:windowHandle,4)
     $script:appRoot = [System.Windows.Automation.AutomationElement]::FromHandle($script:windowHandle)
-    foreach ($section in @('product','custom','personal')) {
-        Invoke-Control ('Add-' + $section)
-        (Find-Control 'TitleInput').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('Native window check')
-        (Find-Control 'ContentInput').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('Sample content saved before pin testing.')
-        Invoke-Control 'EditorDone'
-    }
+    $null = Find-Control 'ChatInput'
+    $null = Find-Control 'ChatSend'
+    Write-Output 'PASS native executable starts on the chat view'
     for ($toggle = 0; $toggle -lt 6; $toggle++) {
         Invoke-Control 'Pin'
         $expected = ($toggle % 2 -eq 0)

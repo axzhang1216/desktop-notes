@@ -406,7 +406,7 @@ namespace DesktopNotes {
             sourceButton=IconButton(DashboardIcon(),"工作中 · 读取 Orca 智能体","AgentsSource",ShowPage);
             refreshButton=GlyphButton("","刷新工作中的智能体","AgentsRefresh",()=>Load(true));
             refreshButton.Visibility=Visibility.Collapsed;
-            int at=Index(tools,"BriefRefresh"); if(at<0) at=Index(tools,"LinearRefresh");
+            int at=Index(tools,"IssuesSource"); if(at<0) at=Index(tools,"LinearSource");
             int insert=at<0?tools.Children.Count:at+1;
             tools.Children.Insert(insert,sourceButton); tools.Children.Insert(insert+1,refreshButton);
 

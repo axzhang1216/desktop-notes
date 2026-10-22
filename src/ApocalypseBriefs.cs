@@ -253,8 +253,29 @@ namespace DesktopNotes {
             string target;
             lock(gate) { Resolve(); target=script; }
             if(target==null) throw new InvalidOperationException("没有找到 Apocalypse 的每日总结脚本。");
+            PollEvidence(target);
             if(yesterday) Run(target,"");
             if(today) Run(target,"--today");
+        }
+
+        // Apocalypse 开着时，聊天记录由它的 watcher 归档；没开时先自己跑一次 watcher，
+        // 总结才有今天的证据。watcher 自带单实例锁，Apocalypse 在跑时这里会直接跳过。
+        void PollEvidence(string script) {
+            try {
+                string pipeline=Path.GetDirectoryName(script);
+                string backend=Path.Combine(Path.GetDirectoryName(pipeline),"backend");
+                if(!File.Exists(Path.Combine(backend,"stream_watcher.py"))) return;
+                string file,lead; Split(python,out file,out lead);
+                string code="import sys;sys.path.insert(0,r'"+backend+"');import stream_watcher as w;ok=w._claim_watch_lock();(w._load_state(),w._startup_index(),w._poll_files()) if ok else None";
+                var info=new ProcessStartInfo { FileName=file, Arguments=(lead.Length==0?"":lead+" ")+"-c \""+code+"\"", UseShellExecute=false, CreateNoWindow=true, RedirectStandardOutput=true, RedirectStandardError=true, WorkingDirectory=backend };
+                using(var process=new Process()) {
+                    process.StartInfo=info;
+                    process.Start();
+                    process.StandardOutput.ReadToEnd();
+                    process.StandardError.ReadToEnd();
+                    if(!process.WaitForExit(120000)) { try { process.Kill(); } catch(Exception) { } }
+                }
+            } catch(Exception) { }
         }
 
         void Run(string target,string day) {
@@ -381,7 +402,7 @@ namespace DesktopNotes {
         readonly StackPanel board;
         readonly TextBlock status;
         readonly TextBlock count;
-        Button notesButton,linearButton,summaryButton,issuesButton,refreshButton;
+        Button notesButton,linearButton,summaryButton,issuesButton;
         string page,rendered;
         bool generating;
 
@@ -412,11 +433,8 @@ namespace DesktopNotes {
             var tools=Toolbar(root); if(tools==null) return;
             summaryButton=IconButton(StrokeIcon("M3.2,4.1 H12.8 M3.2,8 H12.8 M3.2,11.9 H8.4"),"总结","SummarySource",()=>ShowPage("summary"));
             issuesButton=IconButton(StrokeIcon("M8,2.9 L14.3,13.4 H1.7 Z M8,6.6 V9.7 M8,11.5 V11.6"),"潜在问题","IssuesSource",()=>ShowPage("issues"));
-            refreshButton=GlyphButton("\uE72C","刷新每日总结 · 右键重新生成","BriefRefresh",()=>Refresh(false));
-            refreshButton.MouseRightButtonUp+=(s,e)=> { Refresh(true); e.Handled=true; };
-            refreshButton.Visibility=Visibility.Collapsed;
-            int at=Index(tools,"LinearRefresh"); at=at<0?tools.Children.Count:at+1;
-            tools.Children.Insert(at,summaryButton); tools.Children.Insert(at+1,issuesButton); tools.Children.Insert(at+2,refreshButton);
+            int at=Index(tools,"LinearSource"); at=at<0?tools.Children.Count:at+1;
+            tools.Children.Insert(at,summaryButton); tools.Children.Insert(at+1,issuesButton);
             notesButton=FindButton(root,"NotesSource"); if(notesButton!=null) notesButton.Click+=(s,e)=>ReturnToBoard();
             linearButton=FindButton(root,"LinearSource"); if(linearButton!=null) linearButton.Click+=(s,e)=>LeavePage();
             var settings=FindButton(root,"Settings"); if(settings!=null) settings.Click+=(s,e)=>ReturnToBoard();
@@ -428,32 +446,27 @@ namespace DesktopNotes {
             briefs.Load(); page=which;
             Highlight(summaryButton,which=="summary"); Highlight(issuesButton,which=="issues");
             Highlight(notesButton,false); Highlight(linearButton,false);
-            refreshButton.Visibility=Visibility.Visible;
             window.SetHeading(which=="summary"?"总结":"潜在问题");
             window.PreserveStatusOnSave=true;
             if(rendered==which) Render(which);
             else { CardFlip.Run(root,board,()=>Render(which),true); rendered=which; }
-            Generate(false);
+            Generate();
         }
 
         // 读取是瞬时的，先显示；后台没有总结或总结过期时，交给 Apocalypse 重算。
-        void Refresh(bool force) {
-            if(page==null) return;
-            briefs.Load(); Render(page); Generate(force);
-        }
 
-        void Generate(bool force) {
+        void Generate() {
             if(generating || runner==null) return;
-            bool yesterday=force || ApocalypseBriefRunner.NeedsYesterday(briefs.Yesterday);
-            bool today=force || ApocalypseBriefRunner.NeedsToday(briefs.Today,DateTime.Now);
+            bool yesterday=ApocalypseBriefRunner.NeedsYesterday(briefs.Yesterday);
+            bool today=ApocalypseBriefRunner.NeedsToday(briefs.Today,DateTime.Now);
             if(!yesterday && !today) return;
-            generating=true; refreshButton.IsEnabled=false;
+            generating=true;
             status.Text="正在生成每日总结…";
             var worker=new Thread(()=> {
                 string error=null;
                 try { runner.Generate(yesterday,today); } catch(Exception e) { error=e.Message; }
                 window.Dispatcher.BeginInvoke(new Action(()=> {
-                    generating=false; refreshButton.IsEnabled=true;
+                    generating=false;
                     briefs.Load();
                     if(page==null) return;
                     Render(page);
@@ -477,7 +490,6 @@ namespace DesktopNotes {
             if(page==null) return;
             page=null; rendered=null;
             Highlight(summaryButton,false); Highlight(issuesButton,false);
-            refreshButton.Visibility=Visibility.Collapsed;
         }
 
         void LeaveLinearMode() {
@@ -502,10 +514,6 @@ namespace DesktopNotes {
             var button=new Button { Width=32, Height=32, Padding=new Thickness(6), ToolTip=label, Content=icon };
             AutomationProperties.SetAutomationId(button,id); AutomationProperties.SetName(button,label);
             button.Click+=(s,e)=>action(); return button;
-        }
-
-        Button GlyphButton(string glyph,string label,string id,Action action) {
-            return IconButton(new TextBlock { Text=glyph, FontFamily=new FontFamily("Segoe MDL2 Assets"), FontSize=14, VerticalAlignment=VerticalAlignment.Center },label,id,action);
         }
 
         static int Index(StackPanel tools,string id) {
