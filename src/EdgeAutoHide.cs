@@ -15,9 +15,10 @@ namespace DesktopNotes {
 
         readonly Window window;
         readonly Placement placement;
-        readonly DispatcherTimer slideTimer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(16) };
-        readonly DispatcherTimer hideTimer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(700) };
-        readonly DispatcherTimer pollTimer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(120) };
+        readonly DispatcherTimer hideTimer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(180) };
+        readonly DispatcherTimer pollTimer=new DispatcherTimer(DispatcherPriority.Input) { Interval=TimeSpan.FromMilliseconds(30) };
+        Rect dockArea;
+        NativeRect dockWork;
         readonly Stopwatch slideClock=new Stopwatch();
         double slideFrom,slideTo;
         int slideMilliseconds;
@@ -42,43 +43,39 @@ namespace DesktopNotes {
         public void Attach() {
             window.Loaded+=(s,e)=> {
                 if(placement!=null && placement.EdgeDock && !MonitorAbove()) {
-                    IsDocked=true;
-                    window.Top=WorkArea().Top;
+                    SetDockArea(WorkArea());
+                    window.Top=dockArea.Top;
                 }
                 if(IsDocked) ScheduleHide();
             };
             window.LocationChanged+=(s,e)=>CheckLocation();
             window.SizeChanged+=(s,e)=> { if(!IsSliding && !suppressLocation) KeepDockedPosition(); };
-            window.MouseEnter+=(s,e)=> {
-                hideTimer.Stop();
-                if(IsHidden) RevealEdge();
-            };
+            window.MouseEnter+=(s,e)=>PollCursor();
             // 点到收起后露出的边条（此时是窗口底部内容，MouseEnter 可能因动画时序没触发）也要能唤回。
             window.PreviewMouseLeftButtonDown+=(s,e)=> { if(IsHidden) { if(IsDocked) RevealEdge(); else ForceShow(WorkArea()); } };
-            window.MouseLeave+=(s,e)=>ScheduleHide();
+            window.MouseLeave+=(s,e)=>PollCursor();
             window.Deactivated+=(s,e)=>ScheduleHide();
-            window.Activated+=(s,e)=>hideTimer.Stop();
+            window.Activated+=(s,e)=> { if(IsHidden) RevealEdge(); };
             window.StateChanged+=(s,e)=> {
                 if(window.WindowState!=WindowState.Normal) hideTimer.Stop();
                 else ScheduleHide();
             };
-            slideTimer.Tick+=(s,e)=>SlideTick();
             hideTimer.Tick+=(s,e)=>HideTick();
             pollTimer.Tick+=(s,e)=>PollCursor();
             pollTimer.Start();
-            window.Closed+=(s,e)=> { slideTimer.Stop(); hideTimer.Stop(); pollTimer.Stop(); };
+            window.Closed+=(s,e)=> { CompositionTarget.Rendering-=SlideTick; hideTimer.Stop(); pollTimer.Stop(); };
         }
 
         public void ScheduleHide() {
-            if(!IsDocked || IsHidden || IsSliding) return;
-            hideTimer.Stop(); hideTimer.Start();
+            if(!IsDocked || IsHidden || IsSliding || hideTimer.IsEnabled) return;
+            hideTimer.Start();
         }
 
         // 用户按住标题栏时调用：停掉自动收起，未完成的滑动立即到位，拖动不和动画打架。
         public void BeginUserDrag() {
             hideTimer.Stop();
             if(!IsSliding) return;
-            slideTimer.Stop();
+            CompositionTarget.Rendering-=SlideTick;
             suppressLocation=true;
             try { window.Top=slideTo; } finally { suppressLocation=false; }
             IsSliding=false;
@@ -93,21 +90,22 @@ namespace DesktopNotes {
         }
 
         public void HideEdge() {
-            if(!IsDocked || IsHidden || IsSliding || window.WindowState!=WindowState.Normal) return;
+            if(!IsDocked || IsHidden || window.WindowState!=WindowState.Normal) return;
             SlideTo(TuckedTop(WorkArea().Top,window.ActualHeight),true);
         }
 
         public void RevealEdge() {
-            if(!IsDocked || IsSliding) return;
+            if(!IsDocked || !IsHidden || window.WindowState!=WindowState.Normal) return;
+            hideTimer.Stop();
+            // 悬停展开时浮到普通窗口前面，但不抢走正在使用的应用的键盘焦点。
+            SetWindowPos(new WindowInteropHelper(window).Handle,IntPtr.Zero,0,0,0,0,0x0013);
             SlideTo(WorkArea().Top,false);
         }
 
         void HideTick() {
             hideTimer.Stop();
             if(!IsDocked || IsHidden || IsSliding) return;
-            if(window.IsMouseOver) return;
-            // 鼠标离开了，但键盘还在这个窗口里，比如正在输入时把鼠标挪开：不收起。
-            if(window.IsActive && window.IsKeyboardFocusWithin) return;
+            if(CursorOverWindow() || System.Windows.Input.Mouse.LeftButton==System.Windows.Input.MouseButtonState.Pressed || window.IsMouseCaptureWithin) return;
             HideEdge();
         }
 
@@ -115,7 +113,7 @@ namespace DesktopNotes {
             if(suppressLocation || IsSliding || window.WindowState!=WindowState.Normal) return;
             Rect area=WorkArea();
             if(!IsDocked && ShouldDock(window.Top,area.Top) && !MonitorAbove()) {
-                IsDocked=true;
+                SetDockArea(area);
                 suppressLocation=true;
                 try { window.Top=area.Top; } finally { suppressLocation=false; }
                 if(placement!=null) placement.EdgeDock=true;
@@ -130,7 +128,7 @@ namespace DesktopNotes {
         }
 
         void ForceShow(Rect area) {
-            slideTimer.Stop();
+            CompositionTarget.Rendering-=SlideTick;
             IsHidden=false; IsSliding=false;
             suppressLocation=true;
             try { window.Top=area.Top+DockThreshold+4; } finally { suppressLocation=false; }
@@ -146,33 +144,58 @@ namespace DesktopNotes {
         }
 
         void SlideTo(double top,bool hide) {
-            slideFrom=window.Top; slideTo=top; slideMilliseconds=hide?170:200;
+            CompositionTarget.Rendering-=SlideTick;
+            slideFrom=window.Top; slideTo=top; slideMilliseconds=180;
             IsSliding=true; IsHidden=hide; suppressLocation=true;
-            slideClock.Restart(); slideTimer.Start();
+            slideClock.Restart(); CompositionTarget.Rendering+=SlideTick;
         }
 
-        void SlideTick() {
+        void SlideTick(object sender,EventArgs args) {
             double progress=(double)slideClock.ElapsedMilliseconds/slideMilliseconds;
             if(progress>=1) progress=1;
-            double eased=1-Math.Pow(1-progress,3);
+            double eased=progress*progress*(3-2*progress);
             window.Top=slideFrom+(slideTo-slideFrom)*eased;
             if(progress<1) return;
-            slideTimer.Stop();
+            CompositionTarget.Rendering-=SlideTick;
             window.Top=slideTo;
             IsSliding=false; suppressLocation=false;
         }
 
         void PollCursor() {
-            if(!IsDocked || !IsHidden || IsSliding) return;
-            Point cursor;
-            if(!TryCursorPosition(out cursor)) return;
-            Rect area=WorkArea();
-            if(cursor.X>=window.Left-2 && cursor.X<=window.Left+window.ActualWidth+2 && cursor.Y<=area.Top+RevealStrip+2) RevealEdge();
+            if(!IsDocked || window.WindowState!=WindowState.Normal) return;
+            if(CursorOverWindow()) {
+                hideTimer.Stop();
+                if(IsHidden) RevealEdge();
+            } else ScheduleHide();
+        }
+
+        // 边框属于原生窗口，WPF MouseEnter 不一定触发；鼠标和边条统一用物理像素判断。
+        bool CursorOverWindow() {
+            NativePoint cursor; NativeRect bounds;
+            if(!GetCursorPos(out cursor) || !GetWindowRect(new WindowInteropHelper(window).Handle,out bounds)) return false;
+            Rect hit=new Rect(bounds.Left,bounds.Top,Math.Max(0,bounds.Right-bounds.Left),Math.Max(0,bounds.Bottom-bounds.Top));
+            if(IsHidden) {
+                var source=PresentationSource.FromVisual(window);
+                double scale=source==null || source.CompositionTarget==null?1:source.CompositionTarget.TransformToDevice.M22;
+                hit=new Rect(bounds.Left,dockWork.Top,hit.Width,Math.Ceiling(RevealStrip*scale)+2);
+            }
+            return hit.Contains(new Point(cursor.X,cursor.Y));
+        }
+
+        void SetDockArea(Rect area) {
+            dockArea=area;
+            var source=PresentationSource.FromVisual(window);
+            if(source==null || !TryMonitorWorkArea(SelfMonitor(source),out dockWork)) {
+                dockWork=new NativeRect { Top=(int)area.Top };
+            }
+            IsDocked=true;
         }
 
         // 停靠目标屏 = 窗口顶边中点所在的屏。不能用 FromHandle（按面积归属）：
         // 窗口跨在上下两块屏的接缝上时，高度一变归属就翻转，窗口会被来回拽到两块屏的顶边。
         Rect WorkArea() {
+            // 收起动画会把窗口移出目标屏；停靠期间始终使用进入停靠时的屏幕。
+            if(IsDocked) return dockArea;
             try {
                 var helper=new WindowInteropHelper(window);
                 PresentationSource source=PresentationSource.FromVisual(window);
@@ -236,6 +259,8 @@ namespace DesktopNotes {
         const uint MONITOR_DEFAULTTONULL=0;
         const uint MONITOR_DEFAULTTONEAREST=2;
         [DllImport("user32.dll")] static extern bool GetCursorPos(out NativePoint point);
+        [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window,out NativeRect bounds);
+        [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
         [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(NativePoint point,uint flags);
         [DllImport("user32.dll")] static extern IntPtr MonitorFromRect(ref NativeRect rect,uint flags);
         [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr monitor,ref MonitorInfo info);
@@ -249,9 +274,6 @@ namespace DesktopNotes {
                 else point=new Point(native.X,native.Y);
                 return true;
             } catch(Exception) { return false; }
-        }
-        bool TryCursorPosition(out Point point) {
-            return CursorPosition(window,out point);
         }
     }
 }

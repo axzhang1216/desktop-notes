@@ -27,6 +27,9 @@ public static class Verify {
     static void Input(NotesWindow w,string id,string text) { var input=Find(w,id) as TextBox; if(input==null) throw new Exception("Missing input "+id); input.Text=text; }
     static void Capture(NotesWindow w,string name) { w.UpdateLayout(); Pump(); var bitmap=new RenderTargetBitmap((int)w.ActualWidth*2,(int)w.ActualHeight*2,192,192,PixelFormats.Pbgra32); var visual=new DrawingVisual(); using(var drawing=visual.RenderOpen()) { drawing.DrawRectangle(w.Background,null,new Rect(0,0,w.ActualWidth,w.ActualHeight)); drawing.DrawRectangle(new VisualBrush((Visual)w.Content),null,new Rect(0,0,w.ActualWidth,w.ActualHeight)); } bitmap.Render(visual); var encoder=new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using(var file=File.Create(Path.Combine(folder,name+".png"))) encoder.Save(file); }
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h,int command);
+    [DllImport("user32.dll")] static extern bool GetCursorPos(out System.Drawing.Point point);
+    [DllImport("user32.dll")] static extern bool SetCursorPos(int x,int y);
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h,int index);
     [DllImport("user32.dll")] static extern IntPtr GetSystemMenu(IntPtr hWnd,bool bRevert);
     [DllImport("user32.dll")] static extern int GetMenuItemCount(IntPtr hMenu);
@@ -458,7 +461,7 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Check(edge.IsDocked && Math.Abs(w.Top-workTop)<0.5,"moving to the screen top docks the window");
         edge.HideEdge(); Pump(400);
         Check(edge.IsHidden && w.Top<workTop,"hiding tucks the window above the screen edge");
-        edge.RevealEdge(); Pump(400);
+        edge.RevealEdge(); Pump(230);
         Check(!edge.IsHidden && Math.Abs(w.Top-workTop)<1.5,"revealing slides the window back to the top");
         w.Top=workTop+200; Pump(120);
         Check(!edge.IsDocked,"moving away from the top undocks the window");
@@ -469,6 +472,44 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         w.Top=workTop+200; Pump(150);
         Check(!edge.IsHidden && !edge.IsDocked && w.Top>=workTop,"undocking a tucked window brings it back on screen");
         w.Close(); Pump(200); w.Close(); Pump(200);
+    }
+    static void EdgeHoverTests() {
+        System.Drawing.Point savedCursor; GetCursorPos(out savedCursor);
+        var input=new TextBox { Text="hover test" };
+        var w=new Window { Width=320,Height=300,WindowStyle=WindowStyle.None,Topmost=true,ShowActivated=false,Content=input };
+        var edge=new EdgeAutoHide(w,new Placement()); edge.Attach();
+        try {
+            w.Show(); Pump();
+            var screen=System.Windows.Forms.Screen.AllScreens.OrderBy(s=>s.Bounds.Top).First().WorkingArea;
+            var source=PresentationSource.FromVisual(w);
+            Point origin=source.CompositionTarget.TransformFromDevice.Transform(new Point(screen.Left+40,screen.Top));
+            w.Top=origin.Y+80; w.Left=origin.X; Pump();
+            SetCursorPos(screen.Right-20,screen.Bottom-40);
+            w.Top=origin.Y; Pump(500);
+            Check(edge.IsDocked && edge.IsHidden && !edge.IsSliding,"leaving the docked window automatically tucks it within half a second");
+            double dockTop=edge.DockedTop;
+            Point strip=new Point(w.PointToScreen(new Point(100,0)).X,screen.Top+2);
+            IntPtr foreground=GetForegroundWindow();
+            var timer=Stopwatch.StartNew();
+            SetCursorPos((int)strip.X,(int)strip.Y);
+            while((edge.IsHidden || edge.IsSliding) && timer.ElapsedMilliseconds<600) Pump(20);
+            Check(!edge.IsHidden && !edge.IsSliding,"hovering the native edge strip reveals without clicking");
+            Check(GetForegroundWindow()==foreground,"hover reveal preserves the current application's keyboard focus");
+            Check(Math.Abs(w.Top-dockTop)<1 && Math.Abs(edge.DockedTop-dockTop)<1,"hover reveal keeps the original monitor anchor");
+            w.Activate(); input.Focus(); Pump(40);
+            Check(w.IsKeyboardFocusWithin,"hover regression has keyboard focus inside the window");
+            SetCursorPos(screen.Right-20,screen.Bottom-40); timer.Restart();
+            while((!edge.IsHidden || edge.IsSliding) && timer.ElapsedMilliseconds<650) Pump(20);
+            Check(edge.IsHidden && !edge.IsSliding,"keyboard focus does not block automatic mouse-leave hiding");
+            edge.RevealEdge(); Pump(40);
+            edge.HideEdge();
+            Check(edge.IsSliding && edge.IsHidden,"leaving during reveal reverses the animation immediately");
+            Pump(220);
+            edge.RevealEdge(); Pump(40);
+            edge.HideEdge(); Pump(40);
+            edge.RevealEdge();
+            Check(edge.IsSliding && !edge.IsHidden,"returning during hide reverses from the current position");
+        } finally { w.Close(); SetCursorPos(savedCursor.X,savedCursor.Y); }
     }
     static void CloseToTaskbarTests() {
         var store=new NotesStore(Path.Combine(folder,"close","notes.json")); store.Load();
@@ -491,7 +532,7 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
     }
     [STAThread] public static int Main(string[] args) {
         folder=Path.GetFullPath(args[0]); Directory.CreateDirectory(folder); var app=new Application { ShutdownMode=ShutdownMode.OnExplicitShutdown };
-        try { LinearBoardTests(); OrcaDataTests(); MiniAgentDataTests(); StickyDataTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); MiniAgentUiTests(); StickyUiTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
+        try { LinearBoardTests(); OrcaDataTests(); MiniAgentDataTests(); StickyDataTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); MiniAgentUiTests(); StickyUiTests(); EdgeHoverTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
         catch(Exception e) { checks.Add("FAIL "+e); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 1; }
     }
 }
