@@ -22,6 +22,7 @@ namespace DesktopNotes {
     public sealed class MiniAgentConfig {
         public string Vault { get; set; }
         public string Folder { get; set; }
+        public string NotesFolder { get; set; }
         public string Provider { get; set; }
         public string Model { get; set; }
         public string SessionDir { get; set; }
@@ -39,6 +40,7 @@ namespace DesktopNotes {
             return new MiniAgentConfig {
                 Vault=@"E:\BaiduSyncdisk\Obsidian Notes",
                 Folder="MiniAgent",
+                NotesFolder="便签",
                 Provider="minimax",
                 Model="MiniMax-M3.1-Flash",
                 SessionDir=Path.Combine(local,"ZoeyDesktopNotes","miniagent-sessions"),
@@ -53,6 +55,7 @@ namespace DesktopNotes {
                     if(loaded!=null) {
                         if(string.IsNullOrWhiteSpace(loaded.Vault)) loaded.Vault=fallback.Vault;
                         if(string.IsNullOrWhiteSpace(loaded.Folder)) loaded.Folder=fallback.Folder;
+                        if(string.IsNullOrWhiteSpace(loaded.NotesFolder)) loaded.NotesFolder=fallback.NotesFolder;
                         if(string.IsNullOrWhiteSpace(loaded.Provider)) loaded.Provider=fallback.Provider;
                         if(string.IsNullOrWhiteSpace(loaded.Model)) loaded.Model=fallback.Model;
                         if(string.IsNullOrWhiteSpace(loaded.SessionDir)) loaded.SessionDir=fallback.SessionDir;
@@ -314,6 +317,7 @@ namespace DesktopNotes {
         }
         public static void Attach(NotesWindow window,NotesStore store) { Attach(window,store,MiniAgentConfig.Load()); }
         public static void Attach(NotesWindow window,NotesStore store,MiniAgentConfig config) { new MiniAgentChat(window,config).Install(); }
+        public static MiniAgentChat Current { get; private set; }
 
         static T Private<T>(object owner,string name) where T:class {
             FieldInfo field=owner.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic);
@@ -321,6 +325,7 @@ namespace DesktopNotes {
             return field.GetValue(owner) as T;
         }
         void Install() {
+            Current=this;
             BuildComposer();
             window.HomeView=delegate { ShowChat(true); };
             window.Closed+=(s,e)=>closing=true;
@@ -376,7 +381,7 @@ namespace DesktopNotes {
             if(animate && !was) CardFlip.Run(root,board,RenderChat,false); else RenderChat();
             window.Dispatcher.BeginInvoke(new Action(delegate { if(input!=null) input.Focus(); }),DispatcherPriority.Input);
         }
-        void LeaveChat() {
+        public void LeaveChat() {
             if(!chatVisible) return;
             chatVisible=false;
             if(window.ChatComposerHost!=null) window.ChatComposerHost.Visibility=Visibility.Collapsed;

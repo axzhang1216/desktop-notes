@@ -64,6 +64,7 @@ namespace DesktopNotes {
         public double Width { get; set; }
         public double Height { get; set; }
         public bool Topmost { get; set; }
+        public bool EdgeDock { get; set; }
         public Placement() { Left=-1; Top=48; Width=438; Height=730; Topmost=false; }
     }
     public sealed class NotesData {
@@ -183,6 +184,7 @@ namespace DesktopNotes {
         readonly DispatcherTimer positionTimer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(650) };
         Button pin;
         HwndSource closeSource;
+        EdgeAutoHide edge;
         TextBlock headingTitle;
         Note editing;
         string editingSection;
@@ -236,7 +238,10 @@ namespace DesktopNotes {
             Closing+=(s,e)=> { positionTimer.Stop(); if(!FlushEditor() || (view=="sections" && !CommitSections())) { e.Cancel=true; return; } SavePlacement(); if(!Persist()) { e.Cancel=true; return; } if(!allowExit) { if(WindowState==WindowState.Minimized) { allowExit=true; return; } e.Cancel=true; WindowState=WindowState.Minimized; } };
             Closed+=(s,e)=> { editTimer.Stop(); positionTimer.Stop(); };
             PreviewKeyDown+=(s,e)=> { if(e.Key==Key.Escape && view!="board") { CloseOverlay(); e.Handled=true; } if(e.Key==Key.S && Keyboard.Modifiers==ModifierKeys.Control) { FlushEditor(); Persist(); e.Handled=true; } };
-            RestorePlacement(); RenderBoard(); UpdatePin();
+            RestorePlacement();
+            edge=new EdgeAutoHide(this,store.Data.Window);
+            edge.Attach();
+            RenderBoard(); UpdatePin();
         }
         static TextBlock Text(string value,double size=13,string brush="TextBrush",bool bold=false,Thickness? margin=null) {
             var t=new TextBlock { Text=value, FontFamily=new FontFamily("Microsoft YaHei UI"), FontSize=size, FontWeight=bold?FontWeights.SemiBold:FontWeights.Normal, TextWrapping=TextWrapping.Wrap, Margin=margin??new Thickness(0) }; t.SetResourceReference(TextBlock.ForegroundProperty,brush); return t;
@@ -299,7 +304,7 @@ namespace DesktopNotes {
             Topmost=p.Topmost;
         }
         void SchedulePosition() { if(!loaded || WindowState!=WindowState.Normal) return; positionTimer.Stop(); positionTimer.Start(); }
-        void SavePlacement() { if(WindowState!=WindowState.Normal) return; store.Data.Window=new Placement { Left=Left,Top=Top,Width=Width,Height=Height,Topmost=Topmost }; }
+        void SavePlacement() { if(WindowState!=WindowState.Normal) return; store.Data.Window=new Placement { Left=Left,Top=edge==null?Top:edge.DockedTop,Width=Width,Height=Height,Topmost=Topmost,EdgeDock=edge!=null && edge.IsDocked }; }
         public bool PreserveStatusOnSave { get; set; }
         public Action HomeView { get; set; }
         public Border ChatComposerHost { get; private set; }

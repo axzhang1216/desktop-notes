@@ -394,6 +394,7 @@ namespace DesktopNotes {
         }
 
         public static void Attach(NotesWindow window,NotesStore store) { new OrcaIntegration(window,store).Install(); }
+        public static OrcaIntegration Current { get; private set; }
 
         static T Private<T>(object owner,string name) where T:class {
             FieldInfo field=owner.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic);
@@ -402,6 +403,7 @@ namespace DesktopNotes {
         }
 
         void Install() {
+            Current=this;
             var tools=Toolbar(root); if(tools==null) return;
             sourceButton=IconButton(DashboardIcon(),"工作中 · 读取 Orca 智能体","AgentsSource",ShowPage);
             refreshButton=GlyphButton("","刷新工作中的智能体","AgentsRefresh",()=>Load(true));
@@ -476,7 +478,7 @@ namespace DesktopNotes {
             window.PreserveStatusOnSave=false; window.SetHeading("便签"); status.Text="保存在此电脑"; window.RenderBoard();
         }
 
-        void LeavePage() {
+        public void LeavePage() {
             if(!page) return;
             page=false;
             Highlight(sourceButton,false);

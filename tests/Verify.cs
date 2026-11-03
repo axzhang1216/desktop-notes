@@ -108,6 +108,13 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Directory.CreateDirectory(root);
         File.WriteAllText(Path.Combine(root,"template.json"),SampleBrief("DATE_PLACEHOLDER","重新生成标题","今日项目","今日遗留项目","今日遗留问题","GENERATED_AT"),new UTF8Encoding(false));
         File.WriteAllText(Path.Combine(root,"daily_work_brief.py"),StubScript,new UTF8Encoding(false));
+        string backend=Path.Combine(Path.GetDirectoryName(root),"backend");
+        Directory.CreateDirectory(backend);
+        File.WriteAllText(Path.Combine(backend,"stream_watcher.py"),
+            "import os"+Environment.NewLine+
+            "def catch_up(since_iso=None):"+Environment.NewLine+
+            "    open(os.path.join(os.path.dirname(os.path.abspath(__file__)),'since.txt'),'w').write(since_iso or '')"+Environment.NewLine+
+            "    return {'ok': True, 'messages': 0}"+Environment.NewLine,new UTF8Encoding(false));
         string python=StubPython(); if(python==null) return null;
         string config=Path.Combine(root,"apocalypse.json");
         File.WriteAllText(config,"{\"script\":"+JsonText(Path.Combine(root,"daily_work_brief.py"))+",\"python\":"+JsonText(python)+"}",new UTF8Encoding(false));
@@ -123,6 +130,9 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Check(ApocalypseBriefRunner.NeedsYesterday(null) && ApocalypseBriefRunner.NeedsToday(null,DateTime.Now),"missing briefs need generation");
         runner.Generate(true,true); store.Load();
         Check(store.Today!=null && store.Yesterday!=null && store.Today.Headline=="重新生成标题" && store.Yesterday.Headline=="重新生成标题","brief runner regenerates yesterday and today through Apocalypse");
+        string sinceFile=Path.Combine(Path.GetDirectoryName(root),"backend","since.txt");
+        string expectedSince=DateTime.Today.AddDays(-1).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'",CultureInfo.InvariantCulture);
+        Check(File.Exists(sinceFile) && File.ReadAllText(sinceFile).Trim()==expectedSince,"brief runner catches up chat history from yesterday midnight");
         Check(!ApocalypseBriefRunner.NeedsYesterday(store.Yesterday) && !ApocalypseBriefRunner.NeedsToday(store.Today,DateTime.Now),"a fresh brief is not regenerated again");
         Check(ApocalypseBriefRunner.NeedsToday(store.Today,DateTime.Now.AddHours(2)),"a brief older than an hour is regenerated");
         File.WriteAllText(Path.Combine(root,"daily_work_brief.py"),"import sys"+Environment.NewLine+"print('Apocalypse analysis model is not configured', file=sys.stderr)"+Environment.NewLine+"raise SystemExit(1)"+Environment.NewLine,new UTF8Encoding(false));
@@ -143,6 +153,10 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Check(text.Contains("桌面便签") && text.Contains("AOX-2") && text.Contains("继续做") && text.Contains("无项目") && text.Contains("AOX-9"),"board lists open issues and unassigned issues");
         Check(!text.Contains("空项目") && !text.Contains("不应出现的描述") && !text.Contains("第一性原理") && !text.Contains("做完了") && !text.Contains("暂无 Linear 文档"),"project descriptions and finished issues are hidden");
         Check(count.Text=="1 个项目 · 2 条待办","count reports visible projects and open issues");
+        var copied=new LinearIssueItem { Identifier="AOX-30",Title="复制Linear issue",Description="在每个 issue 旁边加一个复制键。",Url="https://linear.app/axzhang1216/issue/AOX-30/copy" };
+        string prompt=LinearBoardView.CopyPrompt(copied);
+        Check(prompt=="解决Linear上的issueAOX-30：https://linear.app/axzhang1216/issue/AOX-30/copy。内容如下：\n复制Linear issue\n在每个 issue 旁边加一个复制键。","copy prompt contains issue number link title and body");
+        Check(LinearBoardView.CopyPrompt(new LinearIssueItem { Identifier="AOX-1",Url="https://linear.app/i" }).EndsWith("AOX-1：https://linear.app/i。内容如下：\n无标题"),"copy prompt falls back to an empty title");
     }
     static void MiniAgentDataTests() {
         var config=MiniAgentConfig.Default();
@@ -161,6 +175,38 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Check(MiniAgentRunner.Quote("a b\"c")=="\"a b\\\"c\"","arguments quote spaces and quotes");
         string args=MiniAgentRunner.Arguments(config,"00000000-0000-0000-0000-000000000000","测试");
         Check(args.Contains("--tools read,bash") && args.Contains("--provider minimax") && args.EndsWith("问题：测试"),"Pi runs with read and bash only");
+    }
+    static void StickyDataTests() {
+        Check(StickyNoteStore.TitleFrom("#  今天做了什么 \n第二行")=="今天做了什么","sticky title comes from the first line without the heading mark");
+        Check(StickyNoteStore.TitleFrom("   \n")=="便签" && StickyNoteStore.TitleFrom(null)=="便签","blank sticky text falls back to the default title");
+        string longTitle=StickyNoteStore.TitleFrom(new string('长',60));
+        Check(longTitle.Length==StickyNoteStore.MaxTitleLength+1 && longTitle.EndsWith("…"),"long sticky titles are truncated with an ellipsis");
+        Check(StickyNoteStore.BodyFrom("# 标题\n第一行\n第二行","标题")=="第一行\n第二行","sticky body drops the repeated title line");
+        Check(StickyNoteStore.FileName(new DateTimeOffset(2026,11,3,9,5,0,TimeSpan.Zero),"a:b/c")=="2026-11-03 0905 a-b-c.md","sticky file name is dated and safe");
+        Check(StickyNoteStore.Tags("计划 #工作 括号（#生活）重复 #工作").SequenceEqual(new[]{"工作","生活"}),"tags are extracted in order and deduplicated");
+        Check(StickyNoteStore.Normalize(" 怎么部署？ ")=="怎么部署" && StickyNoteStore.Normalize("ABC")==StickyNoteStore.Normalize("abc"),"question normalization ignores spacing punctuation and case");
+        Check(StickyNoteStore.PlainText("# 标题\n**重点** `code` ![图](a.png)")=="标题\n重点 code [图片]","plain text strips markdown marks");
+        var moment=new DateTimeOffset(2026,11,3,9,5,0,TimeSpan.Zero);
+        string md=StickyNoteStore.Markdown(moment,"买菜清单","西红柿\n鸡蛋",new List<string>{"生活"},new List<string>{"a.png"});
+        Check(md.Contains("title: \"2026-11-03 买菜清单\"") && md.Contains("created: "+moment.ToString("o",CultureInfo.InvariantCulture)) && md.Contains("  - 生活") && md.Contains("![图片 1](attachments/a.png)"),"sticky markdown keeps front matter tags and image links");
+        string vault=Path.Combine(folder,"sticky-data-vault");
+        var config=MiniAgentConfig.Default(); config.Vault=vault;
+        Check(StickyNoteStore.Folder(config)==Path.Combine(vault,"便签"),"sticky notes live in the vault notes folder by default");
+        config.NotesFolder=" 便签 ";
+        Check(StickyNoteStore.Folder(config)==Path.Combine(vault,"便签"),"a padded folder name is trimmed");
+        string path; StickyNoteStore.Save(config,"# 买菜清单\n西红柿 #生活\n鸡蛋",null,out path);
+        var item=StickyNoteStore.Read(path);
+        Check(Path.GetDirectoryName(path)==Path.Combine(vault,"便签"),"the note is saved under the vault folder");
+        Check(item.Title.EndsWith("买菜清单") && item.Body=="西红柿 #生活\n鸡蛋" && item.Tags.Contains("生活"),"a saved note round trips with title body and tags");
+        string second; StickyNoteStore.Save(config,"买菜清单",null,out second);
+        Check(second!=path && File.Exists(second),"a second note in the same minute gets its own file");
+        Check(StickyNoteStore.Recent(config,10).Count==2,"recent notes are listed");
+        Directory.CreateDirectory(config.ChatFolder);
+        File.WriteAllText(Path.Combine(config.ChatFolder,"chat.md"),"## 你\n怎么部署？\n## 助手\n先跑 build.ps1。\n## 你\n怎么部署?\n## 助手\n运行 build.ps1 即可。\n",new UTF8Encoding(false));
+        var questions=StickyNoteStore.Questions(config,10);
+        Check(questions.Count==1 && questions[0].Count==2 && questions[0].Answer=="运行 build.ps1 即可。","repeated chat questions collapse to one suggestion with the latest answer");
+        Check(EdgeAutoHide.ShouldDock(0,0) && EdgeAutoHide.ShouldDock(8,0) && !EdgeAutoHide.ShouldDock(40,0) && !EdgeAutoHide.ShouldDock(-5,0),"edge docking triggers only near the work area top");
+        Check(EdgeAutoHide.TuckedTop(0,700)==EdgeAutoHide.RevealStrip-700,"a tucked window leaves only the reveal strip");
     }
     static void StoreTests() {
         var store=new NotesStore(Path.Combine(folder,"storage","notes.json")); store.Load();
@@ -383,6 +429,41 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Check(((TextBlock)Find(w,"AppTitle")).Text=="聊天" && w.ChatComposerHost.Visibility==Visibility.Visible,"returning to chat restores the composer");
         w.Close(); Pump(200); w.Close(); Pump(200);
     }
+    static void StickyUiTests() {
+        var store=new NotesStore(Path.Combine(folder,"sticky-ui","notes.json")); store.Load();
+        var w=new NotesWindow(store) { ShowActivated=false,Left=-10000,Top=-10000 }; w.Show(); ShowWindow(new WindowInteropHelper(w).Handle,4); Pump();
+        LinearIntegration.Attach(w,store); LinearIntegrationPolish.Attach(w);
+        var config=MiniAgentConfig.Default(); config.Vault=Path.Combine(folder,"sticky-ui-vault"); Directory.CreateDirectory(config.Vault);
+        config.SessionDir=Path.Combine(folder,"sticky-ui-sessions"); config.NodePath=null; config.CliPath=null;
+        Directory.CreateDirectory(config.ChatFolder);
+        File.WriteAllText(Path.Combine(config.ChatFolder,"chat.md"),"## 你\n怎么部署？\n## 助手\n先跑 build.ps1。\n",new UTF8Encoding(false));
+        MiniAgentChat.Attach(w,store,config); StickyNotesPage.Attach(w,store,config); Pump();
+        Check(Find(w,"StickySource")!=null,"sticky notes button joins the toolbar");
+        Click(w,"StickySource"); Pump(450);
+        Check(((TextBlock)Find(w,"AppTitle")).Text=="便签","the sticky button opens the sticky page");
+        Check(Find(w,"StickyInput")!=null && Find(w,"StickySend")!=null && !Find(w,"StickySend").IsEnabled,"sticky page shows an empty composer with a disabled send");
+        Check(Find(w,"StickyQuestion-0")!=null,"frequently asked questions appear as clickable suggestions");
+        Click(w,"StickyQuestion-0"); Pump();
+        Check(VisualText(w).Contains("先跑 build.ps1。"),"clicking a question shows its saved answer");
+        Input(w,"StickyInput","# 买菜清单\n西红柿 #生活");
+        Check(Find(w,"StickySend").IsEnabled,"typing enables send");
+        Click(w,"StickySend"); Pump(200);
+        var saved=Directory.GetFiles(StickyNoteStore.Folder(config),"*.md");
+        Check(saved.Length==1 && StickyNoteStore.Read(saved[0]).Tags.Contains("生活"),"sending saves a tagged note under the vault");
+        Check(VisualText(w).Contains("已保存到 Obsidian/便签"),"the status confirms where the note was saved");
+        var flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var edge=(EdgeAutoHide)typeof(NotesWindow).GetField("edge",flags).GetValue(w);
+        double workTop=SystemParameters.WorkArea.Top;
+        w.Top=workTop; Pump(120);
+        Check(edge.IsDocked && Math.Abs(w.Top-workTop)<0.5,"moving to the screen top docks the window");
+        edge.HideEdge(); Pump(400);
+        Check(edge.IsHidden && w.Top<workTop,"hiding tucks the window above the screen edge");
+        edge.RevealEdge(); Pump(400);
+        Check(!edge.IsHidden && Math.Abs(w.Top-workTop)<1.5,"revealing slides the window back to the top");
+        w.Top=workTop+200; Pump(120);
+        Check(!edge.IsDocked,"moving away from the top undocks the window");
+        w.Close(); Pump(200); w.Close(); Pump(200);
+    }
     static void CloseToTaskbarTests() {
         var store=new NotesStore(Path.Combine(folder,"close","notes.json")); store.Load();
         var w=new NotesWindow(store) { ShowActivated=false,Left=-10000,Top=-10000 }; w.Show(); ShowWindow(new WindowInteropHelper(w).Handle,4); Pump();
@@ -404,7 +485,7 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
     }
     [STAThread] public static int Main(string[] args) {
         folder=Path.GetFullPath(args[0]); Directory.CreateDirectory(folder); var app=new Application { ShutdownMode=ShutdownMode.OnExplicitShutdown };
-        try { LinearBoardTests(); OrcaDataTests(); MiniAgentDataTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); MiniAgentUiTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
+        try { LinearBoardTests(); OrcaDataTests(); MiniAgentDataTests(); StickyDataTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); MiniAgentUiTests(); StickyUiTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
         catch(Exception e) { checks.Add("FAIL "+e); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 1; }
     }
 }
