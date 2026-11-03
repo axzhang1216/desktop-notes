@@ -64,6 +64,7 @@ namespace DesktopNotes {
         public double Width { get; set; }
         public double Height { get; set; }
         public bool Topmost { get; set; }
+        public bool EdgeDock { get; set; }
         public Placement() { Left=-1; Top=48; Width=438; Height=730; Topmost=false; }
     }
     public sealed class NotesData {
@@ -183,6 +184,7 @@ namespace DesktopNotes {
         readonly DispatcherTimer positionTimer=new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(650) };
         Button pin;
         HwndSource closeSource;
+        EdgeAutoHide edge;
         TextBlock headingTitle;
         Note editing;
         string editingSection;
@@ -212,7 +214,7 @@ namespace DesktopNotes {
             var frame=new Border { BorderThickness=new Thickness(1), Child=root }; frame.SetResourceReference(Border.BorderBrushProperty,"LineBrush"); Content=frame;
             var main=new Grid(); main.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); main.RowDefinitions.Add(new RowDefinition()); main.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); main.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); root.Children.Add(main);
             var header=new Grid { Margin=new Thickness(22,17,14,18), Background=Brushes.Transparent }; header.ColumnDefinitions.Add(new ColumnDefinition()); header.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
-            header.MouseLeftButtonDown+=(s,e)=> { if(e.ClickCount==2) return; if(e.OriginalSource is TextBlock || e.OriginalSource==header) { try { DragMove(); } catch(InvalidOperationException){} } };
+            header.MouseLeftButtonDown+=(s,e)=> { if(e.ClickCount==2) { if(WindowState==WindowState.Maximized) WindowState=WindowState.Normal; return; } if(e.OriginalSource is TextBlock || e.OriginalSource==header) DragHeader(); };
             var heading=new StackPanel { Margin=new Thickness(0,0,8,0) }; headingTitle=Text("便签",24,"TextBrush",true); AutomationProperties.SetAutomationId(headingTitle,"AppTitle"); heading.Children.Add(headingTitle);
             var today=Text(DateTime.Now.ToString("M月d日",CultureInfo.GetCultureInfo("zh-CN")),11,"MutedBrush",false,new Thickness(1,7,0,0)); today.TextWrapping=TextWrapping.NoWrap; today.TextTrimming=TextTrimming.CharacterEllipsis; today.ToolTip=DateTime.Now.ToString("yyyy年M月d日",CultureInfo.GetCultureInfo("zh-CN")); heading.Children.Add(today); header.Children.Add(heading);
             var tools=new StackPanel { Orientation=Orientation.Horizontal, VerticalAlignment=VerticalAlignment.Top, Margin=new Thickness(0,1,0,0) }; Grid.SetColumn(tools,1); header.Children.Add(tools);
@@ -236,7 +238,10 @@ namespace DesktopNotes {
             Closing+=(s,e)=> { positionTimer.Stop(); if(!FlushEditor() || (view=="sections" && !CommitSections())) { e.Cancel=true; return; } SavePlacement(); if(!Persist()) { e.Cancel=true; return; } if(!allowExit) { if(WindowState==WindowState.Minimized) { allowExit=true; return; } e.Cancel=true; WindowState=WindowState.Minimized; } };
             Closed+=(s,e)=> { editTimer.Stop(); positionTimer.Stop(); };
             PreviewKeyDown+=(s,e)=> { if(e.Key==Key.Escape && view!="board") { CloseOverlay(); e.Handled=true; } if(e.Key==Key.S && Keyboard.Modifiers==ModifierKeys.Control) { FlushEditor(); Persist(); e.Handled=true; } };
-            RestorePlacement(); RenderBoard(); UpdatePin();
+            RestorePlacement();
+            edge=new EdgeAutoHide(this,store.Data.Window);
+            edge.Attach();
+            RenderBoard(); UpdatePin();
         }
         static TextBlock Text(string value,double size=13,string brush="TextBrush",bool bold=false,Thickness? margin=null) {
             var t=new TextBlock { Text=value, FontFamily=new FontFamily("Microsoft YaHei UI"), FontSize=size, FontWeight=bold?FontWeights.SemiBold:FontWeights.Normal, TextWrapping=TextWrapping.Wrap, Margin=margin??new Thickness(0) }; t.SetResourceReference(TextBlock.ForegroundProperty,brush); return t;
@@ -299,7 +304,35 @@ namespace DesktopNotes {
             Topmost=p.Topmost;
         }
         void SchedulePosition() { if(!loaded || WindowState!=WindowState.Normal) return; positionTimer.Stop(); positionTimer.Start(); }
-        void SavePlacement() { if(WindowState!=WindowState.Normal) return; store.Data.Window=new Placement { Left=Left,Top=Top,Width=Width,Height=Height,Topmost=Topmost }; }
+        void SavePlacement() { if(WindowState!=WindowState.Normal) return; store.Data.Window=new Placement { Left=Left,Top=edge==null?Top:edge.DockedTop,Width=Width,Height=Height,Topmost=Topmost,EdgeDock=edge!=null && edge.IsDocked }; }
+        // 不用原生 DragMove 拖标题栏：原生移动循环会在屏幕上沿松手时触发 Aero Snap 直接最大化，
+        // 而最大化后 DragMove 会抛 InvalidOperationException 被吞掉，窗口就再也拖不动了。
+        // 改为手动跟随光标；最大化时先把窗口还原到光标下再继续拖。
+        void DragHeader() {
+            Point cursor;
+            if(!EdgeAutoHide.CursorPosition(this,out cursor)) return;
+            if(WindowState==WindowState.Maximized) {
+                double ratio=Math.Max(0.05,Math.Min(0.95,(cursor.X-Left)/Math.Max(1,ActualWidth)));
+                WindowState=WindowState.Normal;
+                Left=cursor.X-Width*ratio; Top=cursor.Y-18;
+            }
+            if(edge!=null) edge.BeginUserDrag();
+            Point origin=cursor;
+            double startLeft=Left,startTop=Top;
+            MouseEventHandler move=null; MouseButtonEventHandler up=null; MouseEventHandler lost=null;
+            up=delegate(object sender,MouseButtonEventArgs args) { if(IsMouseCaptured) ReleaseMouseCapture(); MouseMove-=move; MouseLeftButtonUp-=up; LostMouseCapture-=lost; };
+            lost=delegate(object sender,MouseEventArgs args) { if(IsMouseCaptured) ReleaseMouseCapture(); MouseMove-=move; MouseLeftButtonUp-=up; LostMouseCapture-=lost; };
+            move=delegate(object sender,MouseEventArgs args) {
+                if(!IsMouseCaptured) return;
+                Point current; if(!EdgeAutoHide.CursorPosition(this,out current)) return;
+                double top=startTop+(current.Y-origin.Y);
+                if(edge!=null) top=edge.SnapDragTop(top);
+                Left=startLeft+(current.X-origin.X); Top=top;
+            };
+            CaptureMouse();
+            if(!IsMouseCaptured) return;
+            MouseMove+=move; MouseLeftButtonUp+=up; LostMouseCapture+=lost;
+        }
         public bool PreserveStatusOnSave { get; set; }
         public Action HomeView { get; set; }
         public Border ChatComposerHost { get; private set; }
@@ -355,7 +388,7 @@ namespace DesktopNotes {
             overlay.Children.Clear(); overlay.Visibility=Visibility.Visible;
             var page=new Grid { Margin=new Thickness(22,18,22,20) }; page.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); page.RowDefinitions.Add(new RowDefinition()); page.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); overlay.Children.Add(page);
             var h=new Grid { Margin=new Thickness(0,0,0,19) }; h.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto }); h.ColumnDefinitions.Add(new ColumnDefinition());
-            h.Background=Brushes.Transparent; h.MouseLeftButtonDown+=(s,e)=> { if(e.OriginalSource is TextBlock || e.OriginalSource==h) { try { DragMove(); } catch(InvalidOperationException){} } };
+            h.Background=Brushes.Transparent; h.MouseLeftButtonDown+=(s,e)=> { if(e.ClickCount==2) { if(WindowState==WindowState.Maximized) WindowState=WindowState.Normal; return; } if(e.OriginalSource is TextBlock || e.OriginalSource==h) DragHeader(); };
             var back=IconButton("\uE72B","返回","Back",CloseOverlay); back.Margin=new Thickness(-5,0,10,0); h.Children.Add(back);
             var text=new StackPanel(); text.Children.Add(Text(title,19,"TextBrush",true)); text.Children.Add(Text(subtitle,10.5,"MutedBrush",false,new Thickness(0,6,0,0))); Grid.SetColumn(text,1); h.Children.Add(text); page.Children.Add(h); return page;
         }

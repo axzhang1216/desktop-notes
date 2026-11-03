@@ -13,6 +13,8 @@ $compilerArgs += Join-Path $PSScriptRoot 'src\LinearProgramV2.cs'
 $compilerArgs += Join-Path $PSScriptRoot 'src\ApocalypseBriefs.cs'
 $compilerArgs += Join-Path $PSScriptRoot 'src\OrcaAgents.cs'
 $compilerArgs += Join-Path $PSScriptRoot 'src\MiniAgentChat.cs'
+$compilerArgs += Join-Path $PSScriptRoot 'src\EdgeAutoHide.cs'
+$compilerArgs += Join-Path $PSScriptRoot 'src\StickyNotes.cs'
 $compilerArgs += Join-Path $PSScriptRoot 'src\Version.cs'
 & (Join-Path $framework 'csc.exe') @compilerArgs
 if ($LASTEXITCODE -ne 0) { throw 'Application compilation failed.' }

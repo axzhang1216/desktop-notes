@@ -16,9 +16,9 @@ A small Windows desktop assistant: ask your Obsidian notes directly on the first
 
 - 在顶部「聊天」页输入问题，`Enter` 发送，`Shift+Enter` 换行。回答里的 `路径:行号` 对应 Obsidian 里的原文。
 - 每次对话自动保存到 Obsidian 的 `MiniAgent/` 文件夹，一次对话一个 md。
-- 顶部图标在聊天、Linear 待办、每日总结、潜在问题和工作中之间切换。切换时内容区做一次卡片翻转，左上角标题跟随当前页面。
-- 便签页已由聊天页取代；原有便签数据仍保存在 `notes.json`，设置里的分区管理、导出/导入备份继续可用。
-- 拖动顶部移动窗口，拖动边缘缩放，图钉按钮控制置顶。
+- 顶部图标在便签、聊天、Linear 待办、每日总结、潜在问题和工作中之间切换。切换时内容区做一次卡片翻转，左上角标题跟随当前页面。
+- 旧的本地便签页已由聊天页取代；原有便签数据仍保存在 `notes.json`，设置里的分区管理、导出/导入备份继续可用。新的「便签」页写一条存一条，直接保存进 Obsidian（见下）。
+- 拖动顶部移动窗口，拖动边缘缩放，图钉按钮控制置顶。把窗口拖到屏幕顶端会贴边停靠：鼠标离开后自动收起，只留一条 6 像素的边，鼠标回到屏幕顶部再滑出；停靠状态在下次启动时恢复。多显示器时只有"上方没有其他屏幕"的顶边才会停靠，上下两块屏的接缝处不吸附，不会把窗口收进上面那块屏。
 - 窗口位置、大小和置顶状态会在下次启动时恢复。再次运行程序会唤回已有窗口。
 - 点击 **×** 或按 `Alt+F4` 关闭时，便签最小化到任务栏而不是退出；在任务栏右键图标选择「退出」，或在最小化状态再次选择「关闭」，即可真正关闭程序。
 - `Ctrl+S` 立即保存，`Esc` 返回上一层。
@@ -38,6 +38,7 @@ A small Windows desktop assistant: ask your Obsidian notes directly on the first
 {
   "Vault": "E:\\BaiduSyncdisk\\Obsidian Notes",
   "Folder": "MiniAgent",
+  "NotesFolder": "便签",
   "Provider": "minimax",
   "Model": "MiniMax-M3.1-Flash",
   "SessionDir": "C:\\Users\\<你>\\AppData\\Local\\ZoeyDesktopNotes\\miniagent-sessions",
@@ -49,9 +50,20 @@ A small Windows desktop assistant: ask your Obsidian notes directly on the first
 
 - `Vault`：Obsidian 库根目录。
 - `Folder`：对话记录子目录，也是搜索时排除的目录。
+- `NotesFolder`：便签页保存便签的子目录，默认 `便签`。
 - `Provider` / `Model`：传给 `pi --provider/--model`。
 - `NodePath` / `CliPath`：找不到 Pi 时手动指定 `node.exe` 和 `cli.js`。
 - 聊天界面本身不保存 API key；认证由 Pi 管理。修改配置后重启便签生效。
+
+## 便签（存进 Obsidian）
+
+工具栏第一个图标是便签页，写一条发一条，直接保存成 Obsidian markdown：
+
+- 笔记保存到 `<vault>/便签/`，文件名带日期时间，例如 `2026-11-03 0905 买菜清单.md`。第一行自动作为标题（最长 50 字），正文里的 `#标签` 会写进 front matter。
+- 图片可以直接粘贴或拖进输入框，一条最多 12 张，保存到 `便签/attachments/` 并在笔记末尾引用。
+- `Ctrl+Enter` 发送，发送后输入框清空。
+- 下方「常问的问题」从 `MiniAgent/` 的对话记录里挑出问过的问题，点击直接展开当时的回答，问过多次会标出次数；「最近发送的标签」点击列出带该标签的便签。条目多时右上角「换一批」翻页。
+- 便签文件夹名用 `miniagent.json` 的 `NotesFolder` 配置。
 
 ## Linear 待办
 
@@ -62,6 +74,7 @@ A small Windows desktop assistant: ask your Obsidian notes directly on the first
 - 只显示仍有未完成 Issue 的 Project 标题，不显示项目描述。
 - 每个 Project 下列出未完成 Issue；没有 Project 的 Issue 也会列出。
 - 没有任何未完成 Issue 的 Project 不显示。
+- 每条 Issue 旁的复制按钮会复制包含编号、链接、标题和正文的 agent 提示文本。
 - 卡片右侧的 `↗` 可以打开对应 Linear 页面。
 - 每次点开待办都会重新读取 Issue。
 - 右键 Linear 图标可以管理或断开 Linear 连接。
@@ -94,7 +107,7 @@ A small Windows desktop assistant: ask your Obsidian notes directly on the first
 }
 ```
 
-这两页不需要一直开着 Apocalypse 面板：需要重算时，便签直接跑本机的总结脚本，先跑一次聊天归档（Apocalypse 开着时它自带单实例锁，会自动跳过），再重算今日与昨日的总结，约 50 秒。分析模型在 `~/.claude/apocalypse/harness.json` 里配置，当前是 MiniMax M3.1 Flash。
+这两页不需要一直开着 Apocalypse 面板：需要重算时，便签直接跑本机的总结脚本，先补一次聊天归档（Apocalypse 开着时它自带单实例锁，会自动跳过），再重算今日与昨日的总结，约 50 秒。补归档从昨天 0 点开始，覆盖 Claude、Codex、Pi、omp、OpenClaw、Grok 和 Hermes；此前从未被 Apocalypse 见过的会话也会按时间补读，不再直接当作历史跳过。一次最多补 4 分钟，没补完的下次打开继续。分析模型在 `~/.claude/apocalypse/harness.json` 里配置，当前是 MiniMax M3.1 Flash。
 
 第一次使用时会自动在 Claude Code 记下的仓库位置里找这个脚本，并挑一个带时区数据的 Python 解释器，找到后就写进这个文件。位置不对时可以直接改；解释器路径带空格时用引号包起来，例如 `"python": "\"C:\\Program Files\\Python311\\python.exe\""`。
 

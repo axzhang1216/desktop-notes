@@ -258,22 +258,25 @@ namespace DesktopNotes {
             if(today) Run(target,"--today");
         }
 
-        // Apocalypse 开着时，聊天记录由它的 watcher 归档；没开时先自己跑一次 watcher，
-        // 总结才有今天的证据。watcher 自带单实例锁，Apocalypse 在跑时这里会直接跳过。
+        // Apocalypse 开着时，聊天记录由它的 watcher 持续归档；没开时先自己补一次，
+        // 从昨天 0 点开始读，覆盖此前从未被 watcher 见过的会话（含 omp）。
+        // watcher 自带单实例锁，Apocalypse 在跑时这里会直接跳过。
         void PollEvidence(string script) {
             try {
                 string pipeline=Path.GetDirectoryName(script);
                 string backend=Path.Combine(Path.GetDirectoryName(pipeline),"backend");
                 if(!File.Exists(Path.Combine(backend,"stream_watcher.py"))) return;
                 string file,lead; Split(python,out file,out lead);
-                string code="import sys;sys.path.insert(0,r'"+backend+"');import stream_watcher as w;ok=w._claim_watch_lock();(w._load_state(),w._startup_index(),w._poll_files()) if ok else None";
+                string since=DateTime.Today.AddDays(-1).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'",CultureInfo.InvariantCulture);
+                string code="import sys;sys.path.insert(0,r'"+backend+"');import stream_watcher as w;f=getattr(w,'catch_up',None);print(f('"+since+"') if f else (w._claim_watch_lock() and (w._load_state(),w._startup_index(),w._poll_files())))";
                 var info=new ProcessStartInfo { FileName=file, Arguments=(lead.Length==0?"":lead+" ")+"-c \""+code+"\"", UseShellExecute=false, CreateNoWindow=true, RedirectStandardOutput=true, RedirectStandardError=true, WorkingDirectory=backend };
+                info.EnvironmentVariables["APOCALYPSE_CATCHUP_SECONDS"]="240";
                 using(var process=new Process()) {
                     process.StartInfo=info;
                     process.Start();
                     process.StandardOutput.ReadToEnd();
                     process.StandardError.ReadToEnd();
-                    if(!process.WaitForExit(120000)) { try { process.Kill(); } catch(Exception) { } }
+                    if(!process.WaitForExit(300000)) { try { process.Kill(); } catch(Exception) { } }
                 }
             } catch(Exception) { }
         }
@@ -460,8 +463,11 @@ namespace DesktopNotes {
             bool yesterday=ApocalypseBriefRunner.NeedsYesterday(briefs.Yesterday);
             bool today=ApocalypseBriefRunner.NeedsToday(briefs.Today,DateTime.Now);
             if(!yesterday && !today) return;
+            // 今天重算时顺带刷新昨天：补归档可能补进了昨天的新证据，
+            // 只更新今天会让昨天的总结一直停在旧内容。
+            if(today) yesterday=true;
             generating=true;
-            status.Text="正在生成每日总结…";
+            status.Text="正在补归档并生成每日总结…";
             var worker=new Thread(()=> {
                 string error=null;
                 try { runner.Generate(yesterday,today); } catch(Exception e) { error=e.Message; }

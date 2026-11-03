@@ -19,7 +19,7 @@ jobs:
       - name: Package Windows build
         shell: pwsh
         run: |
-          $version = '1.8.0'
+          $version = '1.9.0'
           $dist = Join-Path $PWD 'dist'
           $stage = Join-Path $dist 'package'
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -36,24 +36,24 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DesktopNotes-v1.8.0-Windows
+          name: DesktopNotes-v1.9.0-Windows
           path: |
-            dist/DesktopNotes-v1.8.0-Windows.zip
-            dist/DesktopNotes-v1.8.0-SHA256.txt
+            dist/DesktopNotes-v1.9.0-Windows.zip
+            dist/DesktopNotes-v1.9.0-SHA256.txt
           retention-days: 14
 
-      - name: Publish v1.8.0 release
+      - name: Publish v1.9.0 release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = 'v1.8.0'
+          $tag = 'v1.9.0'
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag `
-              .\dist\DesktopNotes-v1.8.0-Windows.zip `
-              .\dist\DesktopNotes-v1.8.0-SHA256.txt `
+              .\dist\DesktopNotes-v1.9.0-Windows.zip `
+              .\dist\DesktopNotes-v1.9.0-SHA256.txt `
               --repo $env:GITHUB_REPOSITORY `
               --clobber
             Write-Host "$tag assets refreshed."
@@ -61,22 +61,22 @@ jobs:
           }
 
           $notes = @"
-          桌面便签 v1.8.0 的第一页换成「问笔记」：直接和你的 Obsidian 笔记对话，回答带文件路径和行号。
+          桌面便签 v1.9.0：新增 Obsidian 便签页、常用问答、Linear issue 复制和顶部贴边收起。
 
-          - 首页由本地便签改为聊天界面：Enter 发送，Shift+Enter 换行，右上角可以开新对话。
-          - 回答只做检索：先在 Obsidian 库里用 rg/read 找依据，每条结论带「相对路径:行号」，找不到就直说没有找到。
-          - 每次对话保存为一个 markdown，放在 Obsidian 的 MiniAgent 文件夹里，带标题、时间、模型和完整问答。
-          - 后端用本机 Pi（minimax/MiniMax-M3.1-Flash），不建知识图谱也不做向量索引，笔记改了立刻生效。
-          - 每日总结与潜在问题不再依赖一直开着 Apocalypse：需要时便签自己补归档并重算，约 50 秒。
-          - 工具栏去掉 Linear 与总结页的刷新按钮，点开即刷新。
+          - 新增「便签」页：文字、#标签和粘贴/拖入的图片直接保存到 Obsidian 的便签文件夹，Ctrl+Enter 发送。
+          - 从 MiniAgent 对话记录聚合常用问题，点击即可查看已有回答；点击最近标签查看对应便签。
+          - Linear issue 旁新增复制按钮，一次复制编号、链接、标题和正文。
+          - 窗口拖到屏幕顶部即可停靠，鼠标悬停边条自动滑出，离开后快速收起；动画支持中途反向，展开不抢键盘焦点。
+          - 修复标题栏拖动、最大化后无法还原，以及多屏收起时跨屏跳动；上下屏接缝不触发停靠。
+          - 每日总结生成前从昨天零点补归档聊天记录，补入此前未被 watcher 发现的会话。
 
-          下载 DesktopNotes-v1.8.0-Windows.zip，解压后运行 DesktopNotes.exe。
+          下载 DesktopNotes-v1.9.0-Windows.zip，解压后运行 DesktopNotes.exe。
           "@
 
           gh release create $tag `
-            .\dist\DesktopNotes-v1.8.0-Windows.zip `
-            .\dist\DesktopNotes-v1.8.0-SHA256.txt `
+            .\dist\DesktopNotes-v1.9.0-Windows.zip `
+            .\dist\DesktopNotes-v1.9.0-SHA256.txt `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
-            --title 'v1.8.0 · 问笔记' `
+            --title 'v1.9.0 · 便签、常用问答与贴边收起' `
             --notes $notes

@@ -47,6 +47,7 @@ namespace DesktopNotes {
         public string Id { get; set; }
         public string Identifier { get; set; }
         public string Title { get; set; }
+        public string Description { get; set; }
         public string Url { get; set; }
         public string UpdatedAt { get; set; }
         public int Priority { get; set; }
@@ -160,7 +161,7 @@ namespace DesktopNotes {
     nodes { id name url updatedAt color status { name type } }
   }
   issues(first: 100, orderBy: updatedAt, filter: { state: { type: { nin: [""completed"", ""canceled""] } } }) {
-    nodes { id identifier title url updatedAt priority state { name type } project { id name } }
+    nodes { id identifier title description url updatedAt priority state { name type } project { id name } }
   }
 }";
         readonly string apiKey;
@@ -226,7 +227,7 @@ namespace DesktopNotes {
                 var state=Dict(item,"state");
                 var project=Dict(item,"project");
                 snapshot.Issues.Add(new LinearIssueItem {
-                    Id=String(item,"id"), Identifier=String(item,"identifier"), Title=String(item,"title"), Url=String(item,"url"), UpdatedAt=String(item,"updatedAt"),
+                    Id=String(item,"id"), Identifier=String(item,"identifier"), Title=String(item,"title"), Description=String(item,"description"), Url=String(item,"url"), UpdatedAt=String(item,"updatedAt"),
                     Priority=Int(item,"priority"), StateName=state==null?"":String(state,"name"), StateType=state==null?"":String(state,"type"),
                     ProjectId=project==null?null:String(project,"id"), ProjectName=project==null?"":String(project,"name")
                 });
@@ -301,13 +302,32 @@ namespace DesktopNotes {
             grid.ColumnDefinitions.Add(new ColumnDefinition());
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
             string identifier=string.IsNullOrWhiteSpace(issue.Identifier)?"":issue.Identifier.Trim();
             if(identifier.Length>0) { var id=Text(identifier,11,"MutedBrush",false,new Thickness(0,2,8,0)); id.VerticalAlignment=VerticalAlignment.Center; grid.Children.Add(id); }
             string title=string.IsNullOrWhiteSpace(issue.Title)?"无标题":issue.Title.Trim();
             var name=Text(title,13,"TextBrush",true,new Thickness(0,1,8,0)); name.TextTrimming=TextTrimming.CharacterEllipsis; name.TextWrapping=TextWrapping.NoWrap; name.VerticalAlignment=VerticalAlignment.Center; name.ToolTip=identifier.Length==0?title:identifier+"  "+title; Grid.SetColumn(name,1); grid.Children.Add(name);
             if(!string.IsNullOrWhiteSpace(issue.StateName)) { var state=Text(issue.StateName,10,"MutedBrush"); state.VerticalAlignment=VerticalAlignment.Center; state.Margin=new Thickness(0,0,2,0); Grid.SetColumn(state,2); grid.Children.Add(state); }
-            if(!string.IsNullOrWhiteSpace(issue.Url)) { var open=OpenButton(issue.Url,"在 Linear 中打开"); open.VerticalAlignment=VerticalAlignment.Center; Grid.SetColumn(open,3); grid.Children.Add(open); card.MouseLeftButtonUp+=(s,e)=> { OpenUrl(issue.Url); e.Handled=true; }; }
+            if(!string.IsNullOrWhiteSpace(issue.Identifier) || !string.IsNullOrWhiteSpace(issue.Url)) {
+                var copy=new Button { Content="⧉", Width=27, Height=25, Padding=new Thickness(0), FontFamily=new FontFamily("Segoe UI Symbol"), FontSize=13, ToolTip="复制 issue 内容和链接", VerticalAlignment=VerticalAlignment.Center };
+                AutomationProperties.SetName(copy,"复制 Linear issue");
+                copy.Click+=(s,e)=> {
+                    try { Clipboard.SetText(CopyPrompt(issue)); copy.Content="✓"; copy.ToolTip="已复制到剪贴板"; }
+                    catch(Exception error) { copy.Content="!"; copy.ToolTip="复制失败："+error.Message; }
+                    e.Handled=true;
+                };
+                Grid.SetColumn(copy,3); grid.Children.Add(copy);
+            }
+            if(!string.IsNullOrWhiteSpace(issue.Url)) { var open=OpenButton(issue.Url,"在 Linear 中打开"); open.VerticalAlignment=VerticalAlignment.Center; Grid.SetColumn(open,4); grid.Children.Add(open); card.MouseLeftButtonUp+=(s,e)=> { OpenUrl(issue.Url); e.Handled=true; }; }
             return card;
+        }
+        public static string CopyPrompt(LinearIssueItem issue) {
+            if(issue==null) return "";
+            string identifier=string.IsNullOrWhiteSpace(issue.Identifier)?"":issue.Identifier.Trim();
+            string title=string.IsNullOrWhiteSpace(issue.Title)?"无标题":issue.Title.Trim();
+            string prompt="解决Linear上的issue"+identifier+"："+(issue.Url??"").Trim()+"。内容如下：\n"+title;
+            if(!string.IsNullOrWhiteSpace(issue.Description)) prompt+="\n"+issue.Description.Trim();
+            return prompt;
         }
         static Button OpenButton(string url,string label) {
             var button=new Button { Content="↗", Width=27, Height=25, Padding=new Thickness(0), FontFamily=new FontFamily("Segoe UI Symbol"), FontSize=13, ToolTip=label, VerticalAlignment=VerticalAlignment.Top };
