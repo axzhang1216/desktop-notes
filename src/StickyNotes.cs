@@ -327,6 +327,7 @@ namespace DesktopNotes {
         List<StickySuggestion> allTags=new List<StickySuggestion>();
         int batch;
         bool page;
+        string openResult;
 
         public static StickyNotesPage Current { get; private set; }
 
@@ -511,7 +512,19 @@ namespace DesktopNotes {
                 var wrap=new WrapPanel(); suggestionsPanel.Children.Add(wrap);
                 for(int i=0;i<tags.Count;i++) wrap.Children.Add(TagButton(tags[i],tagStart+i));
             }
-            if(questions.Count==0 && tags.Count==0) suggestionsPanel.Children.Add(StickyNotesView.Text("多聊几次，或给便签加上 #标签，这里就会出现可点的常用问题。",11,"MutedBrush",false,new Thickness(0,4,0,0)));
+            var recent=StickyNoteStore.Recent(config,6);
+            if(recent.Count>0) {
+                suggestionsPanel.Children.Add(StickyNotesView.Text("最近生成的便签 · 点击展开或收起",10.5,"MutedBrush",false,new Thickness(0,10,0,5)));
+                for(int i=0;i<recent.Count;i++) {
+                    StickyNoteItem note=recent[i];
+                    var button=ButtonFor(note.Title,"StickyRecent-"+i,()=>ShowNote(note));
+                    button.Content=StickyNotesView.Text(note.Title,11.5);
+                    button.HorizontalContentAlignment=HorizontalAlignment.Left; button.Padding=new Thickness(11,8,9,8); button.Margin=new Thickness(0,0,0,5);
+                    button.SetResourceReference(Control.BackgroundProperty,"SurfaceBrush");
+                    suggestionsPanel.Children.Add(button);
+                }
+            }
+            if(questions.Count==0 && tags.Count==0 && recent.Count==0) suggestionsPanel.Children.Add(StickyNotesView.Text("多聊几次，或给便签加上 #标签，这里就会出现可点的常用问题。",11,"MutedBrush",false,new Thickness(0,4,0,0)));
             refresh.Visibility=pages>1?Visibility.Visible:Visibility.Collapsed;
         }
 
@@ -535,8 +548,23 @@ namespace DesktopNotes {
             return button;
         }
 
-        void ShowAnswer(StickySuggestion question) {
+        bool ToggleResult(string key) {
+            bool close=openResult==key && resultPanel.Children.Count>0;
             resultPanel.Children.Clear();
+            openResult=close?null:key;
+            return !close;
+        }
+
+        void ShowNote(StickyNoteItem note) {
+            if(!ToggleResult("note:"+note.Path)) return;
+            resultPanel.Children.Add(StickyNotesView.Text(note.Title,12.5,"TextBrush",true,new Thickness(0,14,0,8)));
+            resultPanel.Children.Add(StickyNotesView.Markdown(note.Body));
+            resultPanel.Children.Add(StickyNotesView.Text(note.Created.ToLocalTime().ToString("yyyy-MM-dd HH:mm"),9.5,"MutedBrush",false,new Thickness(0,7,0,0)));
+            resultPanel.BringIntoView();
+        }
+
+        void ShowAnswer(StickySuggestion question) {
+            if(!ToggleResult("question:"+StickyNoteStore.Normalize(question.Text))) return;
             var card=new Border { CornerRadius=new CornerRadius(8),Padding=new Thickness(13,11,13,12),Margin=new Thickness(0,14,0,0),BorderThickness=new Thickness(1) };
             card.SetResourceReference(Border.BackgroundProperty,"SurfaceBrush"); card.SetResourceReference(Border.BorderBrushProperty,"LineBrush");
             var stack=new StackPanel(); card.Child=stack;
@@ -548,12 +576,12 @@ namespace DesktopNotes {
         }
 
         void ShowTag(string tag) {
-            resultPanel.Children.Clear();
+            if(!ToggleResult("tag:"+tag)) return;
             var notes=StickyNoteStore.Recent(config,80).Where(n=>n.Tags.Any(t=>string.Equals(t,tag,StringComparison.OrdinalIgnoreCase))).ToList();
             var head=new Grid { Margin=new Thickness(0,14,0,7) };
             head.ColumnDefinitions.Add(new ColumnDefinition()); head.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
             head.Children.Add(StickyNotesView.Text("标签 #"+tag,12,"TextBrush",true));
-            var close=ButtonFor("收起","StickyResultClose",()=>resultPanel.Children.Clear()); close.FontSize=10; close.Padding=new Thickness(6,2,4,2); close.SetResourceReference(Control.ForegroundProperty,"MutedBrush"); Grid.SetColumn(close,1); head.Children.Add(close);
+            var close=ButtonFor("收起","StickyResultClose",()=> { resultPanel.Children.Clear(); openResult=null; }); close.FontSize=10; close.Padding=new Thickness(6,2,4,2); close.SetResourceReference(Control.ForegroundProperty,"MutedBrush"); Grid.SetColumn(close,1); head.Children.Add(close);
             resultPanel.Children.Add(head);
             if(notes.Count==0) { resultPanel.Children.Add(StickyNotesView.Text("还没有带这个标签的便签。",11,"MutedBrush")); return; }
             foreach(StickyNoteItem note in notes) {
@@ -571,7 +599,7 @@ namespace DesktopNotes {
         }
 
         void ShowSaved(string path) {
-            resultPanel.Children.Clear();
+            resultPanel.Children.Clear(); openResult=null;
             var card=new Border { CornerRadius=new CornerRadius(8),Padding=new Thickness(12,10,12,10),Margin=new Thickness(0,14,0,0) };
             card.SetResourceReference(Border.BackgroundProperty,"SurfaceBrush");
             var stack=new StackPanel(); card.Child=stack;
@@ -604,7 +632,7 @@ namespace DesktopNotes {
 
         void Clear() {
             if(input!=null) input.Text="";
-            attachments.Clear(); RebuildImages(); resultPanel.Children.Clear();
+            attachments.Clear(); RebuildImages(); resultPanel.Children.Clear(); openResult=null;
             status.Text="已清空当前对话框";
             UpdateSendState();
             if(input!=null) input.Focus();
