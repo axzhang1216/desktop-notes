@@ -41,7 +41,7 @@ namespace DesktopNotes {
 
         public void Attach() {
             window.Loaded+=(s,e)=> {
-                if(placement!=null && placement.EdgeDock) {
+                if(placement!=null && placement.EdgeDock && !MonitorAbove()) {
                     IsDocked=true;
                     window.Top=WorkArea().Top;
                 }
@@ -85,9 +85,11 @@ namespace DesktopNotes {
         }
 
         // 手动拖动时把靠近或高于屏幕上沿的位置吸到停靠线，代替原生 DragMove 的贴顶行为。
+        // 上方还有别的显示器时不吸附：收起会藏进上面那块屏。
         public double SnapDragTop(double top) {
             double workTop=WorkArea().Top;
-            return top<=workTop+DockThreshold?workTop:top;
+            if(top>workTop+DockThreshold) return top;
+            return MonitorAbove()?top:workTop;
         }
 
         public void HideEdge() {
@@ -112,7 +114,7 @@ namespace DesktopNotes {
         void CheckLocation() {
             if(suppressLocation || IsSliding || window.WindowState!=WindowState.Normal) return;
             Rect area=WorkArea();
-            if(!IsDocked && ShouldDock(window.Top,area.Top)) {
+            if(!IsDocked && ShouldDock(window.Top,area.Top) && !MonitorAbove()) {
                 IsDocked=true;
                 suppressLocation=true;
                 try { window.Top=area.Top; } finally { suppressLocation=false; }
@@ -168,26 +170,75 @@ namespace DesktopNotes {
             if(cursor.X>=window.Left-2 && cursor.X<=window.Left+window.ActualWidth+2 && cursor.Y<=area.Top+RevealStrip+2) RevealEdge();
         }
 
+        // 停靠目标屏 = 窗口顶边中点所在的屏。不能用 FromHandle（按面积归属）：
+        // 窗口跨在上下两块屏的接缝上时，高度一变归属就翻转，窗口会被来回拽到两块屏的顶边。
         Rect WorkArea() {
             try {
                 var helper=new WindowInteropHelper(window);
-                if(helper.Handle!=IntPtr.Zero) {
-                    System.Drawing.Rectangle bounds=System.Windows.Forms.Screen.FromHandle(helper.Handle).WorkingArea;
-                    PresentationSource source=PresentationSource.FromVisual(window);
-                    if(source!=null && source.CompositionTarget!=null) {
-                        Matrix transform=source.CompositionTarget.TransformFromDevice;
-                        Point topLeft=transform.Transform(new Point(bounds.Left,bounds.Top));
-                        Point bottomRight=transform.Transform(new Point(bounds.Right,bounds.Bottom));
+                PresentationSource source=PresentationSource.FromVisual(window);
+                if(helper.Handle!=IntPtr.Zero && source!=null && source.CompositionTarget!=null) {
+                    NativeRect work;
+                    if(TryMonitorWorkArea(SelfMonitor(source),out work)) {
+                        Matrix fromDevice=source.CompositionTarget.TransformFromDevice;
+                        Point topLeft=fromDevice.Transform(new Point(work.Left,work.Top));
+                        Point bottomRight=fromDevice.Transform(new Point(work.Right,work.Bottom));
                         return new Rect(topLeft,bottomRight);
                     }
-                    return new Rect(bounds.X,bounds.Y,bounds.Width,bounds.Height);
+                    System.Drawing.Rectangle bounds=System.Windows.Forms.Screen.FromHandle(helper.Handle).WorkingArea;
+                    Matrix transform=source.CompositionTarget.TransformFromDevice;
+                    Point tl=transform.Transform(new Point(bounds.Left,bounds.Top));
+                    Point br=transform.Transform(new Point(bounds.Right,bounds.Bottom));
+                    return new Rect(tl,br);
                 }
             } catch(Exception) { }
             return SystemParameters.WorkArea;
         }
 
+        IntPtr SelfMonitor(PresentationSource source) {
+            Matrix toDevice=source.CompositionTarget.TransformToDevice;
+            Point topCenter=toDevice.Transform(new Point(window.Left+Math.Max(1,window.ActualWidth)/2,window.Top+2));
+            return MonitorFromPoint(new NativePoint { X=(int)topCenter.X,Y=(int)topCenter.Y },MONITOR_DEFAULTTONEAREST);
+        }
+
+        static bool TryMonitorWorkArea(IntPtr monitor,out NativeRect work) {
+            work=new NativeRect();
+            if(monitor==IntPtr.Zero) return false;
+            var info=new MonitorInfo(); info.Size=Marshal.SizeOf(typeof(MonitorInfo));
+            if(!GetMonitorInfo(monitor,ref info)) return false;
+            work=info.Work;
+            return true;
+        }
+
+        // 窗口顶边正上方是否压着另一块显示器（上下分屏的接缝）。是则不允许停靠/收起。
+        bool MonitorAbove() {
+            try {
+                PresentationSource source=PresentationSource.FromVisual(window);
+                if(source==null || source.CompositionTarget==null) return false;
+                NativeRect work;
+                if(!TryMonitorWorkArea(SelfMonitor(source),out work)) return false;
+                Matrix toDevice=source.CompositionTarget.TransformToDevice;
+                Point left=toDevice.Transform(new Point(window.Left,0));
+                Point right=toDevice.Transform(new Point(window.Left+Math.Max(1,window.ActualWidth),0));
+                var rect=new NativeRect {
+                    Left=(int)Math.Min(left.X,right.X),
+                    Right=Math.Max((int)Math.Min(left.X,right.X)+1,(int)Math.Max(left.X,right.X)),
+                    Top=work.Top-12,
+                    Bottom=work.Top-4
+                };
+                IntPtr above=MonitorFromRect(ref rect,MONITOR_DEFAULTTONULL);
+                return above!=IntPtr.Zero && above!=SelfMonitor(source);
+            } catch(Exception) { return false; }
+        }
+
         [StructLayout(LayoutKind.Sequential)] struct NativePoint { public int X; public int Y; }
+        [StructLayout(LayoutKind.Sequential)] struct NativeRect { public int Left; public int Top; public int Right; public int Bottom; }
+        [StructLayout(LayoutKind.Sequential)] struct MonitorInfo { public int Size; public NativeRect Monitor; public NativeRect Work; public uint Flags; }
+        const uint MONITOR_DEFAULTTONULL=0;
+        const uint MONITOR_DEFAULTTONEAREST=2;
         [DllImport("user32.dll")] static extern bool GetCursorPos(out NativePoint point);
+        [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(NativePoint point,uint flags);
+        [DllImport("user32.dll")] static extern IntPtr MonitorFromRect(ref NativeRect rect,uint flags);
+        [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr monitor,ref MonitorInfo info);
         public static bool CursorPosition(Visual visual,out Point point) {
             point=new Point();
             NativePoint native;
