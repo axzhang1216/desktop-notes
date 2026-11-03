@@ -53,6 +53,8 @@ namespace DesktopNotes {
                 hideTimer.Stop();
                 if(IsHidden) RevealEdge();
             };
+            // 点到收起后露出的边条（此时是窗口底部内容，MouseEnter 可能因动画时序没触发）也要能唤回。
+            window.PreviewMouseLeftButtonDown+=(s,e)=> { if(IsHidden) { if(IsDocked) RevealEdge(); else ForceShow(WorkArea()); } };
             window.MouseLeave+=(s,e)=>ScheduleHide();
             window.Deactivated+=(s,e)=>ScheduleHide();
             window.Activated+=(s,e)=>hideTimer.Stop();
@@ -70,6 +72,22 @@ namespace DesktopNotes {
         public void ScheduleHide() {
             if(!IsDocked || IsHidden || IsSliding) return;
             hideTimer.Stop(); hideTimer.Start();
+        }
+
+        // 用户按住标题栏时调用：停掉自动收起，未完成的滑动立即到位，拖动不和动画打架。
+        public void BeginUserDrag() {
+            hideTimer.Stop();
+            if(!IsSliding) return;
+            slideTimer.Stop();
+            suppressLocation=true;
+            try { window.Top=slideTo; } finally { suppressLocation=false; }
+            IsSliding=false;
+        }
+
+        // 手动拖动时把靠近或高于屏幕上沿的位置吸到停靠线，代替原生 DragMove 的贴顶行为。
+        public double SnapDragTop(double top) {
+            double workTop=WorkArea().Top;
+            return top<=workTop+DockThreshold?workTop:top;
         }
 
         public void HideEdge() {
@@ -104,8 +122,16 @@ namespace DesktopNotes {
                 IsDocked=false;
                 if(placement!=null) placement.EdgeDock=false;
                 hideTimer.Stop();
-                if(IsHidden) RevealEdge();
+                // 收起状态下被拖离/移开：直接放回屏幕内，否则窗口留在屏外无法再操作。
+                if(IsHidden) ForceShow(area);
             }
+        }
+
+        void ForceShow(Rect area) {
+            slideTimer.Stop();
+            IsHidden=false; IsSliding=false;
+            suppressLocation=true;
+            try { window.Top=area.Top+DockThreshold+4; } finally { suppressLocation=false; }
         }
 
         void KeepDockedPosition() {
@@ -162,16 +188,19 @@ namespace DesktopNotes {
 
         [StructLayout(LayoutKind.Sequential)] struct NativePoint { public int X; public int Y; }
         [DllImport("user32.dll")] static extern bool GetCursorPos(out NativePoint point);
-        bool TryCursorPosition(out Point point) {
+        public static bool CursorPosition(Visual visual,out Point point) {
             point=new Point();
             NativePoint native;
             if(!GetCursorPos(out native)) return false;
             try {
-                PresentationSource source=PresentationSource.FromVisual(window);
+                PresentationSource source=PresentationSource.FromVisual(visual);
                 if(source!=null && source.CompositionTarget!=null) point=source.CompositionTarget.TransformFromDevice.Transform(new Point(native.X,native.Y));
                 else point=new Point(native.X,native.Y);
                 return true;
             } catch(Exception) { return false; }
+        }
+        bool TryCursorPosition(out Point point) {
+            return CursorPosition(window,out point);
         }
     }
 }

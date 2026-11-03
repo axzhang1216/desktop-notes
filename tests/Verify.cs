@@ -462,6 +462,12 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Check(!edge.IsHidden && Math.Abs(w.Top-workTop)<1.5,"revealing slides the window back to the top");
         w.Top=workTop+200; Pump(120);
         Check(!edge.IsDocked,"moving away from the top undocks the window");
+        Check(edge.SnapDragTop(workTop-40)==workTop && edge.SnapDragTop(workTop+5)==workTop && edge.SnapDragTop(workTop+200)==workTop+200,"dragging near or above the top snaps to the dock line");
+        w.Top=workTop; Pump(120);
+        edge.HideEdge(); Pump(400);
+        Check(edge.IsHidden,"the docked window tucks again");
+        w.Top=workTop+200; Pump(150);
+        Check(!edge.IsHidden && !edge.IsDocked && w.Top>=workTop,"undocking a tucked window brings it back on screen");
         w.Close(); Pump(200); w.Close(); Pump(200);
     }
     static void CloseToTaskbarTests() {
