@@ -539,6 +539,11 @@ namespace DesktopNotes {
             var export=ActionButton("导出备份","Export",ExportBackup); export.Margin=new Thickness(0,0,5,0); export.SetResourceReference(BackgroundProperty,"SurfaceBrush"); backups.Children.Add(export);
             var import=ActionButton("导入备份","Import",ImportBackup); import.Margin=new Thickness(5,0,0,0); import.SetResourceReference(BackgroundProperty,"SurfaceBrush"); Grid.SetColumn(import,1); backups.Children.Add(import); content.Children.Add(backups);
             var folder=ActionButton("打开数据文件夹","DataFolder",()=> { Directory.CreateDirectory(Path.GetDirectoryName(store.FilePath)); System.Diagnostics.Process.Start("explorer.exe","\""+Path.GetDirectoryName(store.FilePath)+"\""); }); folder.FontSize=10.5; folder.Margin=new Thickness(0,8,0,0); folder.HorizontalAlignment=HorizontalAlignment.Left; folder.Padding=new Thickness(0,6,0,6); content.Children.Add(folder);
+            var versionLine=new Border { Height=1,Margin=new Thickness(0,18,0,17) }; versionLine.SetResourceReference(Border.BackgroundProperty,"LineBrush"); content.Children.Add(versionLine);
+            content.Children.Add(Text("版本",13,"TextBrush",true));
+            var updateRow=new Grid { Margin=new Thickness(0,8,0,0) }; updateRow.ColumnDefinitions.Add(new ColumnDefinition()); updateRow.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
+            var updateStatus=Text("当前版本 v"+Updater.CurrentVersion,10.5,"MutedBrush"); updateStatus.VerticalAlignment=VerticalAlignment.Center; updateRow.Children.Add(updateStatus);
+            Button updateButton=null; updateButton=ActionButton("检查更新","CheckUpdate",()=>CheckForUpdates(updateStatus,updateButton)); updateButton.MinWidth=96; Grid.SetColumn(updateButton,1); updateRow.Children.Add(updateButton); content.Children.Add(updateRow);
             var bottom=new Grid { Margin=new Thickness(0,16,0,0) }; bottom.ColumnDefinitions.Add(new ColumnDefinition()); bottom.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto }); settingsStatus=Text("当前主题 · "+store.Data.Theme.Name,10.5,"MutedBrush"); settingsStatus.VerticalAlignment=VerticalAlignment.Center; bottom.Children.Add(settingsStatus); var done=ActionButton("完成","SettingsDone",CloseOverlay,true); done.MinWidth=78; Grid.SetColumn(done,1); bottom.Children.Add(done); Grid.SetRow(bottom,2); page.Children.Add(bottom);
         }
         FrameworkElement ColorRow(string property) {
@@ -569,6 +574,25 @@ namespace DesktopNotes {
             var dialog=new Microsoft.Win32.SaveFileDialog { Title="导出便签备份",Filter="便签备份 (*.json)|*.json",FileName="桌面便签备份-"+DateTime.Now.ToString("yyyyMMdd-HHmm")+".json",DefaultExt=".json",AddExtension=true };
             if(dialog.ShowDialog(this)!=true) return;
             try { store.Export(dialog.FileName); settingsStatus.Text="备份已导出"; } catch(Exception e) { MessageBox.Show(this,e.Message,"导出遇到问题",MessageBoxButton.OK,MessageBoxImage.Error); }
+        }
+        async void CheckForUpdates(TextBlock message,Button button) {
+            if(button!=null) button.IsEnabled=false;
+            message.Text="正在检查更新…";
+            try {
+                UpdateInfo info=await Updater.FindAsync();
+                if(info==null) { message.Text="已是最新版本 · v"+Updater.CurrentVersion; return; }
+                if(MessageBox.Show(this,"发现新版本 "+info.Tag+"（当前 v"+Updater.CurrentVersion+"）。\n\n下载后会替换当前程序并重新启动，便签数据保存在本机，不受影响。\n\n现在更新？","检查更新",MessageBoxButton.OKCancel,MessageBoxImage.Question,MessageBoxResult.OK)!=MessageBoxResult.OK) { message.Text="发现新版本 "+info.Tag; return; }
+                message.Text="正在下载 "+info.Tag+"…";
+                string zip=await Updater.DownloadAsync(info);
+                message.Text="正在安装 "+info.Tag+"…";
+                Updater.Install(zip);
+                ExitApplication();
+            } catch(Exception e) {
+                message.Text="更新失败";
+                MessageBox.Show(this,NetworkSupport.ErrorText(e),"检查更新",MessageBoxButton.OK,MessageBoxImage.Error);
+            } finally {
+                if(button!=null) button.IsEnabled=true;
+            }
         }
         void ImportBackup() {
             if(!CommitColors()) return;

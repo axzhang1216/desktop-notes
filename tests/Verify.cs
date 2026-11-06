@@ -161,6 +161,14 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Check(prompt=="解决Linear上的issueAOX-30：https://linear.app/axzhang1216/issue/AOX-30/copy。内容如下：\n复制Linear issue\n在每个 issue 旁边加一个复制键。","copy prompt contains issue number link title and body");
         Check(LinearBoardView.CopyPrompt(new LinearIssueItem { Identifier="AOX-1",Url="https://linear.app/i" }).EndsWith("AOX-1：https://linear.app/i。内容如下：\n无标题"),"copy prompt falls back to an empty title");
     }
+    static void UpdaterTests() {
+        Check(!string.IsNullOrEmpty(Updater.CurrentVersion) && Updater.CurrentVersion.Split('.').Length>=2,"updater reports the build version");
+        Check(Updater.IsNewer("v1.9.2","1.9.1") && !Updater.IsNewer("v1.9.1","1.9.1") && !Updater.IsNewer("v1.8.9","1.9.0"),"updater compares release versions");
+        var info=Updater.ParseRelease("{\"tag_name\":\"v1.9.2\",\"assets\":[{\"name\":\"DesktopNotes-v1.9.2-SHA256.txt\",\"browser_download_url\":\"https://example/hash\"},{\"name\":\"DesktopNotes-v1.9.2-Windows.zip\",\"browser_download_url\":\"https://example/zip\"}]}");
+        Check(info.Tag=="v1.9.2" && info.Version=="1.9.2" && info.DownloadUrl=="https://example/zip","updater picks the Windows zip asset");
+        string error=null; try { Updater.ParseRelease("{\"tag_name\":\"v1.9.2\",\"assets\":[]}"); } catch(Exception e) { error=e.Message; }
+        Check(error!=null && error.Contains("Windows"),"updater reports a release without a Windows zip");
+    }
     static void MiniAgentDataTests() {
         var config=MiniAgentConfig.Default();
         Check(config.Provider=="minimax" && config.Model=="MiniMax-M3.1-Flash" && config.Folder=="MiniAgent","miniagent defaults use the local search model");
@@ -346,6 +354,7 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
         Click(w,"Settings"); Input(w,"Color-Background","invalid"); Click(w,"SettingsDone"); Check(Find(w,"SettingsDone")!=null && store.Data.Theme.Background=="#232629","invalid custom color keeps settings open and preserves color");
         Input(w,"Color-Background","#F1F3EE"); Input(w,"Color-Text","#29322A"); Click(w,"ManageSections"); Input(w,"SectionColor-product","#617358"); Input(w,"SectionColor-custom","#A57655"); Input(w,"SectionColor-personal","#657F99"); Click(w,"SectionsDone"); Click(w,"SettingsDone");
         Check(store.Data.Theme.Name=="自定义" && store.Section("personal").Color=="#657F99","all custom palette fields save");
+        Click(w,"Settings"); Check(Find(w,"CheckUpdate")!=null,"settings offers a manual update check"); Click(w,"SettingsDone");
         Click(w,"Settings"); Click(w,"ManageSections"); Input(w,"SectionName-product","工作"); Click(w,"SectionsDone"); Click(w,"SettingsDone");
         Check(store.Section("product").Name=="工作" && store.Data.Notes[0].Section=="product" && store.Data.Notes[0].CreatedUtc==original,"rename preserves note identity membership and creation time");
         Click(w,"Settings"); Click(w,"ManageSections"); Click(w,"AddSection"); string addedId=store.Data.Sections.Last().Id; Input(w,"SectionName-"+addedId,"阅读计划"); Input(w,"SectionColor-"+addedId,"#807299"); Click(w,"SectionUp-"+addedId);
@@ -557,7 +566,7 @@ body = (here / 'template.json').read_text(encoding='utf-8').replace('DATE_PLACEH
     }
     [STAThread] public static int Main(string[] args) {
         folder=Path.GetFullPath(args[0]); Directory.CreateDirectory(folder); var app=new Application { ShutdownMode=ShutdownMode.OnExplicitShutdown };
-        try { LinearBoardTests(); OrcaDataTests(); MiniAgentDataTests(); StickyDataTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); MiniAgentUiTests(); StickyUiTests(); EdgeHoverTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
+        try { LinearBoardTests(); UpdaterTests(); OrcaDataTests(); MiniAgentDataTests(); StickyDataTests(); StoreTests(); SectionTests(); BriefTests(); RunnerTests(); if(args.Length<2 || args[1]!="--store-only") { UiTests(); MiniAgentUiTests(); StickyUiTests(); EdgeHoverTests(); CloseToTaskbarTests(); ExitCommandTests(); } File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 0; }
         catch(Exception e) { checks.Add("FAIL "+e); File.WriteAllLines(Path.Combine(folder,"results.txt"),checks,new UTF8Encoding(false)); app.Shutdown(); return 1; }
     }
 }
