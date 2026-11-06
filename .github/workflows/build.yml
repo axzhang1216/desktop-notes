@@ -19,7 +19,7 @@ jobs:
       - name: Package Windows build
         shell: pwsh
         run: |
-          $version = '1.9.1'
+          $version = '1.9.2'
           $dist = Join-Path $PWD 'dist'
           $stage = Join-Path $dist 'package'
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -36,24 +36,24 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DesktopNotes-v1.9.1-Windows
+          name: DesktopNotes-v1.9.2-Windows
           path: |
-            dist/DesktopNotes-v1.9.1-Windows.zip
-            dist/DesktopNotes-v1.9.1-SHA256.txt
+            dist/DesktopNotes-v1.9.2-Windows.zip
+            dist/DesktopNotes-v1.9.2-SHA256.txt
           retention-days: 14
 
-      - name: Publish v1.9.1 release
+      - name: Publish v1.9.2 release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = 'v1.9.1'
+          $tag = 'v1.9.2'
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag `
-              .\dist\DesktopNotes-v1.9.1-Windows.zip `
-              .\dist\DesktopNotes-v1.9.1-SHA256.txt `
+              .\dist\DesktopNotes-v1.9.2-Windows.zip `
+              .\dist\DesktopNotes-v1.9.2-SHA256.txt `
               --repo $env:GITHUB_REPOSITORY `
               --clobber
             Write-Host "$tag assets refreshed."
@@ -61,20 +61,20 @@ jobs:
           }
 
           $notes = @"
-          桌面便签 v1.9.1：常用问答和最近便签支持再次点击收起。
+          桌面便签 v1.9.2：设置里可以检查更新，一键升级到新版本。
 
-          - 常用问答点击展开回答，再点同一条收起；点击另一条切换内容。
-          - 新增最近 6 条便签的标题列表，包括没有标签的便签，点击展开正文，再点收起。
-          - 最近标签也支持再次点击收起，清空或保存便签后可正常重新展开。
-          - 补充展开、收起、内容切换及无标签便签的 UI 回归检查。
+          - 设置页底部新增「检查更新」，读取 GitHub Releases 最新版本。
+          - 有新版本时下载 Windows 压缩包，校验后替换当前程序并自动重启；便签数据和配置保存在本机，不受影响。
+          - 已是新版时显示当前版本；下载或替换失败会保留当前程序并显示原因。
+          - Linear 读取遇到系统代理失效时自动直连重试，失败时会显示具体网络原因。
 
-          下载 DesktopNotes-v1.9.1-Windows.zip，解压后运行 DesktopNotes.exe。
+          下载 DesktopNotes-v1.9.2-Windows.zip，解压后运行 DesktopNotes.exe。之后可以直接在设置里更新。
           "@
 
           gh release create $tag `
-            .\dist\DesktopNotes-v1.9.1-Windows.zip `
-            .\dist\DesktopNotes-v1.9.1-SHA256.txt `
+            .\dist\DesktopNotes-v1.9.2-Windows.zip `
+            .\dist\DesktopNotes-v1.9.2-SHA256.txt `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
-            --title 'v1.9.1 · 问答与最近便签点击收起' `
+            --title 'v1.9.2 · 设置内一键更新' `
             --notes $notes

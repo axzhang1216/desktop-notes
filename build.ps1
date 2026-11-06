@@ -4,7 +4,7 @@ $OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
 $bin = Join-Path $PSScriptRoot 'bin'
 New-Item -ItemType Directory -Path $bin -Force | Out-Null
-$references = @('System.dll','System.Core.dll','System.Security.dll','System.Net.Http.dll','System.Xaml.dll','System.Web.Extensions.dll','System.Drawing.dll','System.Windows.Forms.dll','WPF\WindowsBase.dll','WPF\PresentationCore.dll','WPF\PresentationFramework.dll')
+$references = @('System.dll','System.Core.dll','System.Security.dll','System.Net.Http.dll','System.IO.Compression.dll','System.Xaml.dll','System.Web.Extensions.dll','System.Drawing.dll','System.Windows.Forms.dll','WPF\WindowsBase.dll','WPF\PresentationCore.dll','WPF\PresentationFramework.dll')
 $compilerArgs = @('/nologo','/utf8output','/target:winexe','/platform:anycpu','/optimize+','/codepage:65001','/main:DesktopNotes.LinearProgramV2',('/out:' + (Join-Path $bin 'DesktopNotes.exe')),('/win32icon:' + (Join-Path $PSScriptRoot 'assets\app.ico')),('/win32manifest:' + (Join-Path $PSScriptRoot 'src\app.manifest')))
 foreach ($reference in $references) { $compilerArgs += '/reference:' + (Join-Path $framework $reference) }
 $compilerArgs += Join-Path $PSScriptRoot 'src\DesktopNotes.cs'
@@ -15,6 +15,7 @@ $compilerArgs += Join-Path $PSScriptRoot 'src\OrcaAgents.cs'
 $compilerArgs += Join-Path $PSScriptRoot 'src\MiniAgentChat.cs'
 $compilerArgs += Join-Path $PSScriptRoot 'src\EdgeAutoHide.cs'
 $compilerArgs += Join-Path $PSScriptRoot 'src\StickyNotes.cs'
+$compilerArgs += Join-Path $PSScriptRoot 'src\Updater.cs'
 $compilerArgs += Join-Path $PSScriptRoot 'src\Version.cs'
 & (Join-Path $framework 'csc.exe') @compilerArgs
 if ($LASTEXITCODE -ne 0) { throw 'Application compilation failed.' }

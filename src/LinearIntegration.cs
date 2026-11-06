@@ -171,8 +171,19 @@ namespace DesktopNotes {
 
         public async Task<LinearSnapshot> LoadAsync() {
             if(string.IsNullOrWhiteSpace(apiKey)) throw new InvalidOperationException("尚未连接 Linear。");
-            EnableModernTls();
-            using(var client=new HttpClient()) {
+            NetworkSupport.EnableModernTls();
+            try {
+                return await SendAsync(true);
+            } catch(HttpRequestException) {
+                // 系统代理（例如本机 127.0.0.1:7897）没启动或已失效时，直接再连一次。
+                if(!NetworkSupport.UsesSystemProxy(Endpoint)) throw;
+            }
+            return await SendAsync(false);
+        }
+
+        async Task<LinearSnapshot> SendAsync(bool useProxy) {
+            using(var handler=new HttpClientHandler { UseProxy=useProxy })
+            using(var client=new HttpClient(handler)) {
                 client.Timeout=TimeSpan.FromSeconds(20);
                 using(var request=new HttpRequestMessage(HttpMethod.Post,Endpoint)) {
                     request.Headers.TryAddWithoutValidation("Authorization",apiKey.Trim());
@@ -192,12 +203,7 @@ namespace DesktopNotes {
             }
         }
 
-        static void EnableModernTls() {
-            const System.Net.SecurityProtocolType tls12=(System.Net.SecurityProtocolType)3072;
-            const System.Net.SecurityProtocolType tls13=(System.Net.SecurityProtocolType)12288;
-            System.Net.ServicePointManager.SecurityProtocol |= tls12 | tls13;
-        }
-
+        
         LinearSnapshot Parse(string json) {
             var root=serializer.DeserializeObject(json) as Dictionary<string,object>;
             if(root==null) throw new InvalidDataException("Linear 返回了无法识别的数据。");
@@ -482,14 +488,14 @@ namespace DesktopNotes {
                 if(string.IsNullOrWhiteSpace(key.Password)) { message.Text="请输入 API Key。"; return; }
                 connect.IsEnabled=false; cancel.IsEnabled=false; message.Text="正在验证…";
                 try { var snapshot=await new LinearApiClient(key.Password).LoadAsync(); connectionStore.Save(key.Password,snapshot.ViewerName); lastSnapshot=snapshot; CloseSetup(); linearMode=true; RenderLinear(snapshot); }
-                catch(Exception ex) { message.Text=ex.InnerException==null || string.IsNullOrWhiteSpace(ex.InnerException.Message)?ex.Message:ex.InnerException.Message; connect.IsEnabled=true; cancel.IsEnabled=true; }
+                catch(Exception ex) { message.Text=NetworkSupport.ErrorText(ex); connect.IsEnabled=true; cancel.IsEnabled=true; }
             };
             key.KeyDown+=(s,e)=> { if(e.Key==Key.Escape) { CloseSetup(); e.Handled=true; } };
             key.Focus();
         }
 
         void CloseSetup() { if(setupOverlay==null) return; root.Children.Remove(setupOverlay); setupOverlay=null; }
-        void ShowError(string title,Exception error) { MessageBox.Show(window,title+"\n\n"+error.Message,"Linear",MessageBoxButton.OK,MessageBoxImage.Error); }
+        void ShowError(string title,Exception error) { MessageBox.Show(window,title+"\n\n"+NetworkSupport.ErrorText(error),"Linear",MessageBoxButton.OK,MessageBoxImage.Error); }
     }
 
     public static class CardFlip {
